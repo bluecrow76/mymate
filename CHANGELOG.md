@@ -13,6 +13,14 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- Right-clicking a device on the map shows a Tools section when it has an IP address: Winbox,
+  SSH, Trace and Upgrade (the same as the buttons in the device panel), plus HTTP and HTTPS,
+  which open the device's web page in a new tab. Every operator gets the tools. Upgrade, and the
+  parent, remove and delete items, stay admin-only as before. SSH, HTTP and HTTPS links to an
+  IPv6 address now put it in brackets, so they work, and the device panel's SSH button gets the
+  same fix.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added
