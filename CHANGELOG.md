@@ -14,6 +14,12 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- Right-clicking a device on the map shows a Tools section when it has an IP address: Winbox,
+  SSH, Trace and Upgrade (the same as the buttons in the device panel), plus HTTP and HTTPS,
+  which open the device's web page in a new tab. Every operator gets the tools. Upgrade, and the
+  parent, remove and delete items, stay admin-only as before. SSH, HTTP and HTTPS links to an
+  IPv6 address now put it in brackets, so they work, and the device panel's SSH button gets the
+  same fix.
 - Graphs can look back in time: arrows next to the range step the window back and forward by its
   own length, so a 6h graph can show any six hours still kept, not only the latest (#59).
 - The Devices tab sorts by RouterOS version (newest or oldest first, 7.9 before 7.10) and filters

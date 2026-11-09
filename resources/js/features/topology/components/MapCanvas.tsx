@@ -34,7 +34,9 @@ import { MapLinkEditor } from './MapLinkEditor';
 import { MapSwitcher } from '../../maps/components/MapSwitcher';
 import { MapBreadcrumb } from '../../maps/components/MapBreadcrumb';
 import { MapSearch } from './MapSearch';
-import { MapNodeMenu, type NodeMenuState } from './MapNodeMenu';
+import { MapNodeMenu, nodeMenuHasItems, type NodeMenuState } from './MapNodeMenu';
+import { TraceModal } from './TraceModal';
+import { useUpgradeDevices } from '../../devices/api/upgradeDevices';
 import { SetParentDialog } from './SetParentDialog';
 import { DeleteDeviceDialog } from './DeleteDeviceDialog';
 import { MapControls } from './MapControls';
@@ -205,10 +207,13 @@ export function MapCanvas() {
     const [showChildLinks, setShowChildLinks] = useState(true); // toggle the aggregated device links between child maps (GitHub #9)
     const [layoutMenu, setLayoutMenu] = useState(false); // the "Tidy ▾" layout-algorithm dropdown
     const [toolsMenu, setToolsMenu] = useState(false); // mobile: all map tools behind one overflow button
-    // Right-click device management (GitHub #45): the node menu, and the two dialogs it opens.
+    // Right-click device management (GitHub #45): the node menu, and the dialogs it opens.
     const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null);
     const [parentForId, setParentForId] = useState<number | null>(null); // parent picker
     const [deleteDeviceId, setDeleteDeviceId] = useState<number | null>(null); // delete confirmation
+    const [traceDeviceId, setTraceDeviceId] = useState<number | null>(null); // node menu > Trace
+    const [upgradeDeviceId, setUpgradeDeviceId] = useState<number | null>(null); // node menu > Upgrade (confirm)
+    const upgrade = useUpgradeDevices();
 
     // Stable so threading it into edge data doesn\'t churn the edge-build effect.
     const requestDelete = useCallback((linkId: number) => setDeleteLinkId(linkId), []);
@@ -913,12 +918,15 @@ export function MapCanvas() {
                         setInspectorOpen(true); // surface the inspector sheet on phones/tablets
                     }
                 }}
-                // Right-click a device card -> manage it in place (GitHub #45): parent, remove
-                // from this map, delete. Selecting it first makes the menu's target unambiguous
-                // (focus ring + the inspector follows along). Admin-only, like every write here;
-                // other node types keep the browser's own menu.
+                // Right-click a device card -> its tools (Winbox, SSH, HTTP/S, trace, upgrade) and,
+                // for an admin, manage it in place (GitHub #45): parent, remove from this map,
+                // delete. Selecting it first makes the menu's target unambiguous (focus ring + the
+                // inspector follows along). A non-admin only gets the menu when there's an IP for
+                // the tools; other node types keep the browser's own menu.
                 onNodeContextMenu={(e, node) => {
-                    if (!isAdmin || node.type !== 'device') return;
+                    if (node.type !== 'device') return;
+                    const target = (devices ?? []).find((x) => x.id === Number(node.id));
+                    if (!target || !nodeMenuHasItems(target, isAdmin)) return;
                     e.preventDefault();
                     selectDevice(Number(node.id));
                     setNodeMenu({ deviceId: Number(node.id), x: e.clientX, y: e.clientY });
@@ -1311,7 +1319,10 @@ export function MapCanvas() {
                             device={d}
                             x={nodeMenu.x}
                             y={nodeMenu.y}
+                            isAdmin={isAdmin}
                             onThisMap={memberSet.has(d.id)}
+                            onTrace={() => setTraceDeviceId(d.id)}
+                            onUpgrade={() => setUpgradeDeviceId(d.id)}
                             onSetParent={() => setParentForId(d.id)}
                             onClearParent={() =>
                                 updateDevice.mutate(
@@ -1335,6 +1346,46 @@ export function MapCanvas() {
             {deleteDeviceId !== null && devices?.some((d) => d.id === deleteDeviceId) && (
                 <DeleteDeviceDialog device={devices.find((d) => d.id === deleteDeviceId)!} onClose={() => setDeleteDeviceId(null)} />
             )}
+
+            {/* Node menu > Trace: the inspector's live MTR to the device's mgmt IP. The run stops
+                when this closes. */}
+            {traceDeviceId !== null &&
+                (() => {
+                    const d = devices?.find((x) => x.id === traceDeviceId);
+                    if (!d?.mgmt_ip) return null;
+                    return <TraceModal deviceId={d.id} deviceName={d.name} targetIp={d.mgmt_ip} onClose={() => setTraceDeviceId(null)} />;
+                })()}
+
+            {/* Node menu > Upgrade: same confirmation and job as the inspector's button. */}
+            {upgradeDeviceId !== null &&
+                (() => {
+                    const d = devices?.find((x) => x.id === upgradeDeviceId);
+                    if (!d) return null;
+                    return (
+                        <ConfirmDialog
+                            title="Upgrade RouterOS"
+                            message={
+                                <>
+                                    Upgrade <span className="font-semibold text-white/85">{d.name}</span>? It downloads the latest RouterOS and reboots the
+                                    device.
+                                </>
+                            }
+                            confirmLabel="Upgrade"
+                            busy={upgrade.isPending}
+                            onConfirm={() =>
+                                upgrade.mutate(
+                                    { deviceIds: [d.id] },
+                                    {
+                                        onSuccess: () => pushToast({ title: `${d.name}: upgrade queued`, detail: 'Downloading + rebooting', tone: 'info' }),
+                                        onError: () => pushToast({ title: `${d.name}: couldn't queue upgrade`, tone: 'down' }),
+                                        onSettled: () => setUpgradeDeviceId(null),
+                                    },
+                                )
+                            }
+                            onClose={() => setUpgradeDeviceId(null)}
+                        />
+                    );
+                })()}
 
             {/* Add a device (or a generic internet object) straight onto this map: create it, then
                 drop it at the current viewport centre and select it. The dialog creates with

@@ -50,6 +50,7 @@ import { DeviceTypeBadge } from '../../../components/DeviceTypeBadge';
 import { DeviceGlyph } from '../nodes/DeviceGlyph';
 import { UpgradeStatusBadge } from '../../../components/UpgradeStatusBadge';
 import { relativeTime } from '../../../lib/relativeTime';
+import { sshUrl, winboxUrl } from '../../../lib/deviceLinks';
 import { formatMbps, formatRate } from '../../../lib/formatRate';
 import { usePlaybackOverrides } from '../../geo/hooks/usePlaybackOverrides';
 import { PlaybackInspectorBanner } from '../../geo/components/PlaybackBar';
@@ -730,10 +731,10 @@ export function DeviceInspector() {
                 {/* Only offered when there's an address to open - a static object (no IP) has none. */}
                 {device.mgmt_ip && (
                     <>
-                        <a href={`winbox://${device.mgmt_ip}`} className={actionBtn}>
+                        <a href={winboxUrl(device.mgmt_ip)} className={actionBtn}>
                             Winbox
                         </a>
-                        <a href={`ssh://${device.mgmt_ip}`} className={actionBtn}>
+                        <a href={sshUrl(device.mgmt_ip)} className={actionBtn}>
                             <Terminal weight="light" className="h-3.5 w-3.5" /> SSH
                         </a>
                     </>
