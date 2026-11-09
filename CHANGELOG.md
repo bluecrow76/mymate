@@ -36,8 +36,9 @@ of commit subjects.
 - An "Orphaned only" toggle in Map tools narrows the device list to devices that aren't on any
   map yet, instead of everything missing from the current map. Remembered per browser.
 - Map notes can be copied, pasted and duplicated, including from one map to another.
-  Right-click a note to Copy, Duplicate or Delete it. With several notes selected, the menu acts
-  on all of them. Right-click an empty part of the map to paste where you clicked, or to add a
+  Right-click a note to Edit, Copy, Duplicate or Delete it. Edit is handy for a note that is all
+  link, which leaves nowhere to double-click. With several notes selected, the menu acts on all of
+  them (Edit is for one note at a time). Right-click an empty part of the map to paste where you clicked, or to add a
   new note there. Ctrl+C, Ctrl+V and Ctrl+D (⌘ on a Mac) do the same when the map has focus.
   Pasted notes keep their text, colours, size and arrangement, and arrive selected so they can be
   moved straight away. A copy is kept in the browser, so it survives a reload and can be pasted
