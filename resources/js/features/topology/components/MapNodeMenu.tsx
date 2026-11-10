@@ -1,8 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { EyeSlash, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
+import { CaretRight, ClipboardText, Copy, EyeSlash, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
 import { StatusDot } from '../../../components/StatusDot';
 import type { Device } from '../../../types';
+import { ATTRIBUTE_LABEL, attributeOf, type DeviceAttributeClip, type DeviceAttributeKind } from '../../../lib/deviceAttributeClipboard';
+
+const COPY_ITEMS: { kind: DeviceAttributeKind; label: string; title: string }[] = [
+    { kind: 'icon', label: 'Copy icon', title: 'The icon and its colour (or the automatic icon)' },
+    { kind: 'location', label: 'Copy location', title: 'Where it sits on the geo map' },
+    { kind: 'poll', label: 'Copy poll method', title: 'The poll method and its credential' },
+];
 
 /** Where a right-click opened the menu, and on which device. The device itself is looked up
  *  live by id at render, so the menu can't outlive (or misreport) the thing it acts on. */
@@ -23,6 +30,9 @@ const MARGIN = 8; // keep the menu clear of the viewport edges
  * one clearly separated - delete goes through a confirmation that counts what it takes with it.
  *
  * Admin-only: every item is a write, and non-admin operators are read-only app-wide (FR-38).
+ *
+ * Copy attribute: put this device's icon, location or poll method on the attribute clipboard;
+ * Paste then applies it to the right-clicked device, or to every selected one.
  */
 export function MapNodeMenu({
     device,
@@ -36,6 +46,9 @@ export function MapNodeMenu({
     onClose,
     selectionCount = 0,
     onBulkEdit,
+    onCopyAttribute,
+    clip = null,
+    onPasteAttribute,
 }: {
     device: Device;
     x: number;
@@ -49,9 +62,16 @@ export function MapNodeMenu({
     /** How many device cards are selected along with this one; 2+ offers the bulk edit. */
     selectionCount?: number;
     onBulkEdit?: () => void;
+    onCopyAttribute?: (kind: DeviceAttributeKind) => void;
+    /** What's on the attribute clipboard, offered as a paste onto the selection (or this device). */
+    clip?: DeviceAttributeClip | null;
+    onPasteAttribute?: () => void;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState({ x, y });
+    const [copyOpen, setCopyOpen] = useState(false);
+    // The Copy attribute flyout opens to the right, or to the left when there's no room for it.
+    const flyLeft = pos.x + 2 * 240 + MARGIN > window.innerWidth;
 
     // Flip/clamp into view once measured - a right-click near the bottom-right of the canvas
     // would otherwise open the menu half off-screen.
@@ -109,6 +129,66 @@ export function MapNodeMenu({
                         <div className="my-1 h-px bg-white/10" />
                     </>
                 )}
+
+                {(() => {
+                    const pasteCount = selectionCount >= 2 ? selectionCount : 1;
+                    // Pasting a device's attribute back onto itself alone does nothing.
+                    const canPaste = clip && onPasteAttribute && (selectionCount >= 2 || clip.fromId !== device.id);
+                    if (!onCopyAttribute && !canPaste) return null;
+                    return (
+                        <>
+                            {onCopyAttribute && (
+                                <div className="relative" onMouseEnter={() => setCopyOpen(true)} onMouseLeave={() => setCopyOpen(false)}>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCopyOpen((o) => !o)}
+                                        aria-expanded={copyOpen}
+                                        className={`${item} text-white/75 ${copyOpen ? 'bg-white/10' : ''}`}
+                                    >
+                                        <Copy weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />
+                                        <span className="flex-1">Copy attribute</span>
+                                        <CaretRight weight="bold" className="h-3 w-3 shrink-0 text-white/40" />
+                                    </button>
+                                    {copyOpen && (
+                                        // Padding, not margin, on the outer box so the pointer can cross the gap.
+                                        <div className={`absolute top-0 z-10 ${flyLeft ? 'right-full pr-1.5' : 'left-full pl-1.5'}`}>
+                                            <div className="w-48 rounded-2xl bg-surface/95 p-1.5 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9)] ring-1 ring-white/10 backdrop-blur-xl">
+                                                {COPY_ITEMS.map((c) => {
+                                                    const none = attributeOf(device, c.kind) === null;
+                                                    return (
+                                                        <button
+                                                            key={c.kind}
+                                                            type="button"
+                                                            disabled={none}
+                                                            onClick={run(() => onCopyAttribute(c.kind))}
+                                                            title={none ? 'This device has no location to copy' : c.title}
+                                                            className={`${item} text-white/75 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent`}
+                                                        >
+                                                            <span className="flex-1">{c.label}</span>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {canPaste && (
+                                <button
+                                    onClick={run(onPasteAttribute)}
+                                    title={`Copied from ${clip.fromName}`}
+                                    className={`${item} text-white/75`}
+                                >
+                                    <ClipboardText weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />
+                                    <span className="flex-1">
+                                        Paste {ATTRIBUTE_LABEL[clip.kind]} to {selectionCount >= 2 ? `${pasteCount} selected devices` : 'this device'}
+                                    </span>
+                                </button>
+                            )}
+                            <div className="my-1 h-px bg-white/10" />
+                        </>
+                    );
+                })()}
 
                 <button onClick={run(onSetParent)} className={`${item} text-white/75`}>
                     <TreeStructure weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />

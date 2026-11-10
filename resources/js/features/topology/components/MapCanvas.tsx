@@ -59,6 +59,8 @@ import { useCaptureLayoutSnapshot, useUndoLayout, useLayoutSnapshotCount } from 
 import { bundleParallel, computeData, linkUtil, metaOf, type EdgeMeta, type UtilMap } from '../lib/edgeData';
 import { selectDevice, setEdgeStyle, setEdgeAttach, setInspectorOpen, setLayoutKind, setMapGrid, useActiveMapId, useEdgeStyle, useEdgeAttach, useLayoutKind, useMapGrid, useMapGridColor, useMapGridSize, useSelectedDeviceId } from '../../../lib/shellStore';
 import { pushToast } from '../../../lib/toast';
+import { ATTRIBUTE_LABEL, attributeChanges, copyDeviceAttribute, useDeviceAttributeClip, type DeviceAttributeClip } from '../../../lib/deviceAttributeClipboard';
+import { bulkErrorMessages, useBulkUpdateDevices } from '../../devices/api/bulkUpdateDevices';
 import { fmtDuration } from '../../device-page/lib/format';
 import type { AlertStateChangedPayload, Device, DeviceRebootedPayload, DeviceStatus, FaceSensorReading, InterfaceUtilUpdatedPayload } from '../../../types';
 
@@ -164,6 +166,23 @@ export function MapCanvas() {
     const addToMap = useAddDeviceToMap();
     const removeFromMap = useRemoveDeviceFromMap();
     const updateDevice = useUpdateDevice(); // node menu: clear a parent without opening the picker
+    // Node menu: Copy attribute / Paste onto the selection (one all-or-nothing bulk edit).
+    const attributeClip = useDeviceAttributeClip();
+    const bulkUpdate = useBulkUpdateDevices();
+    const pasteAttribute = (clip: DeviceAttributeClip, ids: number[]) => {
+        const what = ATTRIBUTE_LABEL[clip.kind];
+        const where = ids.length === 1 ? '1 device' : `${ids.length} devices`;
+        bulkUpdate.mutate(
+            { ids, changes: attributeChanges(clip) },
+            {
+                onSuccess: () => pushToast({ title: `Pasted ${what} to ${where}`, detail: `From ${clip.fromName}`, tone: 'info' }),
+                onError: (err) => pushToast({ title: `Couldn't paste the ${what} - nothing was changed`, detail: (() => {
+                        const msgs = bulkErrorMessages(err);
+                        return msgs.length > 4 ? `${msgs.slice(0, 4).join(' ')} (+${msgs.length - 4} more)` : msgs.join(' ');
+                    })(), tone: 'down' }),
+            },
+        );
+    };
     const { fitView, screenToFlowPosition } = useReactFlow();
     const theme = useTheme();
     const highContrast = useContrast() === 'high';
@@ -1329,6 +1348,13 @@ export function MapCanvas() {
                             onClose={() => setNodeMenu(null)}
                             selectionCount={nodeMenu.selectionIds?.length ?? 0}
                             onBulkEdit={() => nodeMenu.selectionIds && setBulkEditIds(nodeMenu.selectionIds)}
+                            onCopyAttribute={
+                                isAdmin
+                                    ? (kind) => copyDeviceAttribute(d, kind) && pushToast({ title: `Copied ${d.name}'s ${ATTRIBUTE_LABEL[kind]}`, tone: 'info' })
+                                    : undefined
+                            }
+                            clip={isAdmin ? attributeClip : null}
+                            onPasteAttribute={() => attributeClip && pasteAttribute(attributeClip, nodeMenu.selectionIds ?? [d.id])}
                         />
                     );
                 })()}

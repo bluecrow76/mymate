@@ -160,6 +160,30 @@ class DeviceBulkUpdateTest extends TestCase
         $this->assertDatabaseHas('devices', ['id' => $snmp->id, 'credential_id' => $cred->id]);
     }
 
+    public function test_a_poll_method_and_its_credential_paste_onto_devices_together(): void
+    {
+        // "Copy poll method" on the map sends both, from a device on any method.
+        $cred = Credential::factory()->routeros()->create();
+        $a = Device::factory()->create(['mgmt_ip' => '10.0.0.1', 'poll_method' => PollMethod::None]);
+        $b = Device::factory()->create(['mgmt_ip' => '10.0.0.2', 'poll_method' => PollMethod::Snmp, 'credential_id' => Credential::factory()->create()->id]);
+
+        $this->bulk([$a->id, $b->id], ['poll_method' => 'routeros', 'credential_id' => $cred->id])->assertOk();
+
+        foreach ([$a, $b] as $d) {
+            $this->assertDatabaseHas('devices', ['id' => $d->id, 'poll_method' => 'routeros', 'credential_id' => $cred->id]);
+        }
+    }
+
+    public function test_pasting_the_automatic_icon_clears_icon_overrides(): void
+    {
+        // "Copy icon" from a device on the automatic icon sends nulls.
+        $a = Device::factory()->create(['icon' => 'server', 'icon_color' => '#ff0000']);
+
+        $this->bulk([$a->id], ['icon' => null, 'icon_color' => null])->assertOk();
+
+        $this->assertDatabaseHas('devices', ['id' => $a->id, 'icon' => null, 'icon_color' => null]);
+    }
+
     public function test_switching_to_ping_only_drops_the_poll_credential(): void
     {
         $cred = Credential::factory()->create();
