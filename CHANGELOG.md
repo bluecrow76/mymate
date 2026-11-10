@@ -13,6 +13,13 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- Copy a device's icon, location or poll method onto other devices: right-click a device on the
+  map and pick Copy attribute, then select the devices to change, right-click one of them and
+  choose Paste. The paste is all or nothing - if any device can't take it (no IP to poll, say),
+  nothing changes and the problems are listed. A pasted location becomes each device's own pin;
+  a pasted poll method brings its credential with it. Admin only.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added
