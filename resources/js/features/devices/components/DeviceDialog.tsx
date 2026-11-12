@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from '@phosphor-icons/react';
 import { useCreateDevice } from '../api/createDevice';
@@ -29,7 +29,31 @@ const field =
     'w-full rounded-xl bg-white/[0.03] px-3 py-2 text-sm text-white ring-1 ring-white/10 outline-none ' +
     'transition duration-300 ease-fluid placeholder:text-white/30 [color-scheme:dark] focus:bg-white/[0.05] focus:ring-2 focus:ring-emerald-400/60';
 
-export type DeviceDialogDefaults = { name?: string; mgmt_ip?: string; device_type?: DeviceType; poll_method?: PollMethod };
+export type DeviceDialogDefaults = {
+    name?: string;
+    mgmt_ip?: string;
+    device_type?: DeviceType;
+    poll_method?: PollMethod;
+    credential_id?: number | null;
+    agent_id?: number | null;
+    /** Set when the defaults were cloned from an existing device (map right-click > New device from this). */
+    copiedFrom?: string;
+};
+
+/** Add-dialog defaults cloned from an existing device: the same settings the Add dialog shows,
+ *  with the name and IP pre-filled for the operator to change. The alias is left blank - it's the
+ *  friendly name on the card, so copying it would label two cards the same. */
+export function cloneDefaults(d: Device): DeviceDialogDefaults {
+    return {
+        name: d.name,
+        mgmt_ip: d.mgmt_ip ?? '',
+        device_type: d.device_type,
+        poll_method: d.poll_method,
+        credential_id: d.credential_id,
+        agent_id: d.agent_id,
+        copiedFrom: d.name,
+    };
+}
 
 /**
  * Create or edit a device in a main-window modal. Used from the Devices view, the map toolbar
@@ -64,8 +88,10 @@ export function DeviceDialog({
     const [pollMethod, setPollMethod] = useState<PollMethod>(device?.poll_method ?? defaults?.poll_method ?? 'snmp');
     const [placeOnMap, setPlaceOnMap] = useState(true); // create only: drop it on the current map?
     const [deviceType, setDeviceType] = useState<DeviceType>(device?.device_type ?? defaults?.device_type ?? 'unknown');
-    const [agentId, setAgentId] = useState<string>(device?.agent_id != null ? String(device.agent_id) : '');
-    const [credentialId, setCredentialId] = useState<string>(device?.credential_id != null ? String(device.credential_id) : '');
+    const initialAgentId = device ? device.agent_id : defaults?.agent_id;
+    const initialCredentialId = device ? device.credential_id : defaults?.credential_id;
+    const [agentId, setAgentId] = useState<string>(initialAgentId != null ? String(initialAgentId) : '');
+    const [credentialId, setCredentialId] = useState<string>(initialCredentialId != null ? String(initialCredentialId) : '');
     const [monitored, setMonitored] = useState<boolean>(device?.monitored ?? true);
     // Ping FROM this local address (#11). Empty = the global default source.
     const [pingSource, setPingSource] = useState<string>(device?.ping_source ?? '');
@@ -78,6 +104,12 @@ export function DeviceDialog({
     const [lat, setLat] = useState<string>(device?.latitude != null ? String(device.latitude) : '');
     const [lng, setLng] = useState<string>(device?.longitude != null ? String(device.longitude) : '');
     const [address, setAddress] = useState('');
+    // A clone opens with the copied name focused and selected, ready to type over (once, on open).
+    const nameRef = useRef<HTMLInputElement>(null);
+    const isClone = mode === 'create' && !!defaults?.copiedFrom;
+    useEffect(() => {
+        if (isClone) nameRef.current?.select();
+    }, [isClone]);
     const geocode = useGeocode();
     const { data: mapCfg } = useMapConfig();
 
@@ -153,6 +185,9 @@ export function DeviceDialog({
                                     ? placeOnMap ? 'It is added to your fleet and placed on this map' : 'It is added to your fleet but shown on no map'
                                     : 'Change how this device is identified and polled'}
                             </p>
+                            {mode === 'create' && defaults?.copiedFrom && (
+                                <p className="mt-1 text-xs text-emerald-300/90">Settings copied from {defaults.copiedFrom}. Change the name and management IP.</p>
+                            )}
                         </div>
                         <button type="button" onClick={onClose} className="rounded-lg p-1 text-white/40 transition-colors hover:bg-white/5 hover:text-white/80">
                             <X weight="bold" className="h-4 w-4" />
@@ -161,7 +196,8 @@ export function DeviceDialog({
 
                     <label className="block space-y-1">
                         <span className={fieldLabel}>Name</span>
-                        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. bdr1" className={field} />
+                        {/* A clone opens with the copied name selected, ready to type over. */}
+                        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. bdr1" className={field} ref={nameRef} />
                     </label>
                     <label className="block space-y-1">
                         <span className={fieldLabel}>Alias</span>

@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretRight, ClipboardText, Copy, EyeSlash, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
+import { CaretRight, ClipboardText, Copy, CopySimple, EyeSlash, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
 import { StatusDot } from '../../../components/StatusDot';
 import type { Device } from '../../../types';
 import { ATTRIBUTE_LABEL, attributeOf, type DeviceAttributeClip, type DeviceAttributeKind } from '../../../lib/deviceAttributeClipboard';
@@ -33,6 +33,9 @@ const MARGIN = 8; // keep the menu clear of the viewport edges
  *
  * Copy attribute: put this device's icon, location or poll method on the attribute clipboard;
  * Paste then applies it to the right-clicked device, or to every selected one.
+ *
+ * New device from this: opens Add device pre-filled with this device's settings, so a sibling
+ * only needs its own name and management IP.
  */
 export function MapNodeMenu({
     device,
@@ -49,6 +52,7 @@ export function MapNodeMenu({
     onCopyAttribute,
     clip = null,
     onPasteAttribute,
+    onCloneDevice,
 }: {
     device: Device;
     x: number;
@@ -66,6 +70,8 @@ export function MapNodeMenu({
     /** What's on the attribute clipboard, offered as a paste onto the selection (or this device). */
     clip?: DeviceAttributeClip | null;
     onPasteAttribute?: () => void;
+    /** Open Add device pre-filled from this device. */
+    onCloneDevice?: () => void;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState({ x, y });
@@ -125,6 +131,16 @@ export function MapNodeMenu({
                         <button onClick={run(onBulkEdit)} title="Change the same settings on every selected device" className={`${item} text-white/75`}>
                             <PencilSimple weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />
                             <span className="flex-1">Edit {selectionCount} selected devices...</span>
+                        </button>
+                        <div className="my-1 h-px bg-white/10" />
+                    </>
+                )}
+
+                {onCloneDevice && (
+                    <>
+                        <button onClick={run(onCloneDevice)} title="Add a new device with this one's settings - then change its name and management IP" className={`${item} text-white/75`}>
+                            <CopySimple weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />
+                            <span className="flex-1">New device from this...</span>
                         </button>
                         <div className="my-1 h-px bg-white/10" />
                     </>

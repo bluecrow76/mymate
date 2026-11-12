@@ -15,7 +15,7 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { AlignBottom, AlignCenterHorizontal, AlignCenterVertical, AlignLeft, AlignRight, AlignTop, ArrowCounterClockwise, ArrowsOutCardinal, CaretDown, CircleDashed, Columns, Cube, DotsNine, DotsThreeVertical, Globe, Graph, ImageSquare, Info, LineSegment, LinkBreak, MagnetStraight, Note, Plus, PushPin, Rows, Sparkle, TreeStructure, WaveSine } from '@phosphor-icons/react';
-import { DeviceDialog, type DeviceDialogDefaults } from '../../devices/components/DeviceDialog';
+import { DeviceDialog, cloneDefaults, type DeviceDialogDefaults } from '../../devices/components/DeviceDialog';
 import { useContrast, useTheme } from '../../../lib/theme';
 import { DeviceNode } from '../nodes/DeviceNode';
 import { MapPortalNode } from '../nodes/MapPortalNode';
@@ -213,7 +213,8 @@ export function MapCanvas() {
     const [deviceUtil, setDeviceUtil] = useState<Record<number, number | null>>({});
     const [deviceLoad, setDeviceLoad] = useState<Record<number, number | null>>({});
     // Add-device / add-internet-object dialog (null = closed). defaults preset the internet stub.
-    const [deviceDialog, setDeviceDialog] = useState<{ defaults?: DeviceDialogDefaults } | null>(null);
+    // `near`: a clone (node menu > New device from this) lands beside its source card, not mid-screen.
+    const [deviceDialog, setDeviceDialog] = useState<{ defaults?: DeviceDialogDefaults; near?: { x: number; y: number } } | null>(null);
     const [pending, setPending] = useState<PendingLink | null>(null);
     const [historyLinkId, setHistoryLinkId] = useState<number | null>(null);
     const [deleteLinkId, setDeleteLinkId] = useState<number | null>(null);
@@ -1355,6 +1356,16 @@ export function MapCanvas() {
                             }
                             clip={isAdmin ? attributeClip : null}
                             onPasteAttribute={() => attributeClip && pasteAttribute(attributeClip, nodeMenu.selectionIds ?? [d.id])}
+                            onCloneDevice={
+                                isAdmin
+                                    ? () => {
+                                          // Just right of the source card (its measured width + a gap), same row.
+                                          const src = nodes.find((n) => n.type === 'device' && n.id === String(d.id));
+                                          const near = src ? { x: src.position.x + (src.measured?.width ?? 200) + 48, y: src.position.y } : undefined;
+                                          setDeviceDialog({ defaults: cloneDefaults(d), near });
+                                      }
+                                    : undefined
+                            }
                         />
                     );
                 })()}
@@ -1387,7 +1398,7 @@ export function MapCanvas() {
                             selectDevice(d.id); // inspector offers "Add to this map" if they change their mind
                             return;
                         }
-                        const pos = screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+                        const pos = deviceDialog.near ?? screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
                         addToMap.mutate({ mapId: activeMapId, deviceId: d.id, x: pos.x, y: pos.y }, { onSuccess: () => selectDevice(d.id) });
                     }}
                 />
