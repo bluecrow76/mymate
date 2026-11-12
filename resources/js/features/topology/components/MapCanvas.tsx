@@ -36,6 +36,7 @@ import { MapBreadcrumb } from '../../maps/components/MapBreadcrumb';
 import { MapSearch } from './MapSearch';
 import { MapNodeMenu, type NodeMenuState } from './MapNodeMenu';
 import { BulkEditDevicesDialog } from '../../devices/components/BulkEditDevicesDialog';
+import { AddToMapDialog } from './AddToMapDialog';
 import { SetParentDialog } from './SetParentDialog';
 import { DeleteDeviceDialog } from './DeleteDeviceDialog';
 import { MapControls } from './MapControls';
@@ -231,6 +232,8 @@ export function MapCanvas() {
     const [parentForId, setParentForId] = useState<number | null>(null); // parent picker
     const [deleteDeviceId, setDeleteDeviceId] = useState<number | null>(null); // delete confirmation
     const [bulkEditIds, setBulkEditIds] = useState<number[] | null>(null); // bulk edit of a multi-selection
+    // Node menu > Add to another map: the devices (with where they sit here) + the header label.
+    const [addToOtherMap, setAddToOtherMap] = useState<{ devices: { deviceId: number; x: number; y: number }[]; title: string } | null>(null);
 
     // Stable so threading it into edge data doesn\'t churn the edge-build effect.
     const requestDelete = useCallback((linkId: number) => setDeleteLinkId(linkId), []);
@@ -1356,6 +1359,20 @@ export function MapCanvas() {
                             }
                             clip={isAdmin ? attributeClip : null}
                             onPasteAttribute={() => attributeClip && pasteAttribute(attributeClip, nodeMenu.selectionIds ?? [d.id])}
+                            onAddToMap={
+                                isAdmin
+                                    ? () => {
+                                          const ids = nodeMenu.selectionIds ?? [d.id];
+                                          // Where each card sits right now (a fresh drag may not be saved yet), else its saved spot.
+                                          const live = new Map(nodes.filter((n) => n.type === 'device').map((n) => [Number(n.id), n.position]));
+                                          const list = ids.map((id) => {
+                                              const p = live.get(id) ?? posById[id] ?? { x: 0, y: 0 };
+                                              return { deviceId: id, x: p.x, y: p.y };
+                                          });
+                                          setAddToOtherMap({ devices: list, title: ids.length === 1 ? d.name : `${ids.length} devices` });
+                                      }
+                                    : undefined
+                            }
                             onCloneDevice={
                                 isAdmin
                                     ? () => {
@@ -1372,6 +1389,11 @@ export function MapCanvas() {
 
             {/* Edit every selected device card at once - from the node menu on a multi-selection. */}
             {bulkEditIds !== null && <BulkEditDevicesDialog deviceIds={bulkEditIds} onClose={() => setBulkEditIds(null)} />}
+
+            {/* Put the right-clicked device (or the selection) on another map as well. */}
+            {addToOtherMap !== null && activeMapId !== null && (
+                <AddToMapDialog currentMapId={activeMapId} devices={addToOtherMap.devices} title={addToOtherMap.title} onClose={() => setAddToOtherMap(null)} />
+            )}
 
             {/* Re-home a device onto its real uplink - from the node menu or the inspector. */}
             {parentForId !== null && devices?.some((d) => d.id === parentForId) && (
