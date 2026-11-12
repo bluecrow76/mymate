@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretRight, ClipboardText, Copy, CopySimple, EyeSlash, Eraser, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
+import { CaretRight, ClipboardText, Copy, CopySimple, EyeSlash, Eraser, LinkBreak, MapTrifold, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
 import { StatusDot } from '../../../components/StatusDot';
 import type { Device } from '../../../types';
 import { ATTRIBUTE_LABEL, attributeOf, type DeviceAttributeClip, type DeviceAttributeKind } from '../../../lib/deviceAttributeClipboard';
@@ -46,6 +46,8 @@ const MARGIN = 8; // keep the menu clear of the viewport edges
  *
  * New device from this: opens Add device pre-filled with this device's settings, so a sibling
  * only needs its own name and management IP.
+ *
+ * Add to another map: puts this device - or the whole selection - on a second map as well.
  */
 export function MapNodeMenu({
     device,
@@ -64,6 +66,7 @@ export function MapNodeMenu({
     onPasteAttribute,
     onClearAttribute,
     onCloneDevice,
+    onAddToMap,
 }: {
     device: Device;
     x: number;
@@ -85,6 +88,8 @@ export function MapNodeMenu({
     onClearAttribute?: () => void;
     /** Open Add device pre-filled from this device. */
     onCloneDevice?: () => void;
+    /** Pick another map to put this device (or the selection) on as well. */
+    onAddToMap?: () => void;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState({ x, y });
@@ -243,6 +248,16 @@ export function MapNodeMenu({
 
                 <div className="my-1 h-px bg-white/10" />
 
+                {onAddToMap && (
+                    <button
+                        onClick={run(onAddToMap)}
+                        title="Also show it on another map - it stays on this one"
+                        className={`${item} text-white/75`}
+                    >
+                        <MapTrifold weight="light" className="h-4 w-4 shrink-0 text-indigo-300" />
+                        <span className="flex-1">{selectionCount >= 2 ? `Add ${selectionCount} devices to another map...` : 'Add to another map...'}</span>
+                    </button>
+                )}
                 {onThisMap && (
                     <button
                         onClick={run(onRemoveFromMap)}

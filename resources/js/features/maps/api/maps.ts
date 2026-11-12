@@ -19,13 +19,15 @@ export function useMaps() {
     });
 }
 
+async function fetchMapDetail(id: number): Promise<MapDetail> {
+    const { data } = await apiClient.get<{ data: MapDetail }>(`/maps/${id}`);
+    return data.data;
+}
+
 export function useMap(id: number | null) {
     return useQuery({
         queryKey: id === null ? (['maps', 'pending'] as const) : mapKeys.detail(id),
-        queryFn: async (): Promise<MapDetail> => {
-            const { data } = await apiClient.get<{ data: MapDetail }>(`/maps/${id}`);
-            return data.data;
-        },
+        queryFn: () => fetchMapDetail(id as number),
         enabled: id !== null,
     });
 }
@@ -173,6 +175,35 @@ export function useAddDeviceToMap() {
             qc.invalidateQueries({ queryKey: mapKeys.all });
             // The canvas's device set and every row's maps_count just changed.
             qc.invalidateQueries({ queryKey: deviceKeys.all });
+        },
+    });
+}
+
+export type AddDevicesResult = { added: number; already: number; failed: number };
+
+/**
+ * Put several devices on another map at once (node menu > Add to another map), each at the given
+ * spot - the caller passes their positions on the current map, so a group keeps its arrangement.
+ * Devices already on the target are left exactly where they are there and counted as `already`.
+ */
+export function useAddDevicesToMap() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ mapId, devices }: { mapId: number; devices: { deviceId: number; x: number; y: number }[] }): Promise<AddDevicesResult> => {
+            // Fresh membership of the target, so "already there" is accurate even if it's cached stale.
+            const target = await qc.fetchQuery({ queryKey: mapKeys.detail(mapId), queryFn: () => fetchMapDetail(mapId), staleTime: 0 });
+            const onTarget = new Set(target.positions.map((p) => p.device_id));
+            const todo = devices.filter((d) => !onTarget.has(d.deviceId));
+            const results = await Promise.allSettled(
+                todo.map((d) => apiClient.post(`/maps/${mapId}/devices`, { device_id: d.deviceId, x: d.x, y: d.y })),
+            );
+            const failed = results.filter((r) => r.status === 'rejected').length;
+            return { added: todo.length - failed, already: devices.length - todo.length, failed };
+        },
+        onSettled: (_r, _e, { mapId }) => {
+            qc.invalidateQueries({ queryKey: mapKeys.detail(mapId) });
+            qc.invalidateQueries({ queryKey: mapKeys.all }); // device counts in the map list
+            qc.invalidateQueries({ queryKey: deviceKeys.all }); // every row's maps_count
         },
     });
 }
