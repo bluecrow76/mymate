@@ -38,6 +38,7 @@ const MARGIN = 8; // keep the menu clear of the viewport edges
  * only needs its own name and management IP.
  *
  * Add to another map: puts this device - or the whole selection - on a second map as well.
+ * Remove from this map works on the whole selection too (after a confirmation).
  */
 export function MapNodeMenu({
     device,
@@ -241,7 +242,7 @@ export function MapNodeMenu({
                         className={`${item} text-white/75`}
                     >
                         <EyeSlash weight="light" className="h-4 w-4 shrink-0 text-white/40" />
-                        <span className="flex-1">Remove from this map</span>
+                        <span className="flex-1">{selectionCount >= 2 ? `Remove ${selectionCount} devices from this map...` : 'Remove from this map'}</span>
                     </button>
                 )}
                 <button

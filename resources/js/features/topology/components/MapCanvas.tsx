@@ -14,7 +14,7 @@ import {
     type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { AlignBottom, AlignCenterHorizontal, AlignCenterVertical, AlignLeft, AlignRight, AlignTop, ArrowCounterClockwise, ArrowsOutCardinal, CaretDown, CircleDashed, Columns, Cube, DotsNine, DotsThreeVertical, Globe, Graph, ImageSquare, Info, LineSegment, LinkBreak, MagnetStraight, Note, Plus, PushPin, Rows, Sparkle, TreeStructure, WaveSine } from '@phosphor-icons/react';
+import { AlignBottom, AlignCenterHorizontal, AlignCenterVertical, AlignLeft, AlignRight, AlignTop, ArrowCounterClockwise, ArrowsOutCardinal, CaretDown, CircleDashed, Columns, Cube, DotsNine, DotsThreeVertical, EyeSlash, Globe, Graph, ImageSquare, Info, LineSegment, LinkBreak, MagnetStraight, Note, Plus, PushPin, Rows, Sparkle, TreeStructure, WaveSine } from '@phosphor-icons/react';
 import { DeviceDialog, cloneDefaults, type DeviceDialogDefaults } from '../../devices/components/DeviceDialog';
 import { useContrast, useTheme } from '../../../lib/theme';
 import { DeviceNode } from '../nodes/DeviceNode';
@@ -43,7 +43,7 @@ import { MapControls } from './MapControls';
 import { MapBackground } from './MapBackground';
 import { OspfCostControl } from './OspfCostControl';
 import { ConfirmDialog } from '../../../components/Dialog';
-import { useMap, useSaveMapPositions, isEmptyBatch, type MapPositionBatch, useAddDeviceToMap, useRemoveDeviceFromMap, useCreateMapLink, useUpdateMapLink, useDeleteMapLink, useRemoveChildMap, useCreateMapNote, useUpdateMapNote, useDeleteMapNote } from '../../maps/api/maps';
+import { useMap, useSaveMapPositions, isEmptyBatch, type MapPositionBatch, useAddDeviceToMap, useRemoveDeviceFromMap, useRemoveDevicesFromMap, useCreateMapLink, useUpdateMapLink, useDeleteMapLink, useRemoveChildMap, useCreateMapNote, useUpdateMapNote, useDeleteMapNote } from '../../maps/api/maps';
 import { useMapChannel } from '../hooks/useMapChannel';
 import { useMapCanvasPlayback } from '../hooks/useMapCanvasPlayback';
 import { PlaybackBadge, PlaybackBar } from '../../geo/components/PlaybackBar';
@@ -166,6 +166,9 @@ export function MapCanvas() {
     const deleteLink = useDeleteLink();
     const addToMap = useAddDeviceToMap();
     const removeFromMap = useRemoveDeviceFromMap();
+    const removeManyFromMap = useRemoveDevicesFromMap();
+    // Node menu on a multi-selection > Remove from this map: waits for a confirmation.
+    const [removeIds, setRemoveIds] = useState<number[] | null>(null);
     const updateDevice = useUpdateDevice(); // node menu: clear a parent without opening the picker
     // Node menu: Copy attribute / Paste onto the selection (one all-or-nothing bulk edit).
     const attributeClip = useDeviceAttributeClip();
@@ -1347,7 +1350,12 @@ export function MapCanvas() {
                                     { onError: () => pushToast({ title: 'Couldn\'t clear the parent', tone: 'down' }) },
                                 )
                             }
-                            onRemoveFromMap={() => activeMapId !== null && removeFromMap.mutate({ mapId: activeMapId, deviceId: d.id })}
+                            onRemoveFromMap={() => {
+                                if (activeMapId === null) return;
+                                // A whole selection loses its layout here, so that one asks first; one device goes straight off.
+                                if (nodeMenu.selectionIds) setRemoveIds(nodeMenu.selectionIds);
+                                else removeFromMap.mutate({ mapId: activeMapId, deviceId: d.id });
+                            }}
                             onDelete={() => setDeleteDeviceId(d.id)}
                             onClose={() => setNodeMenu(null)}
                             selectionCount={nodeMenu.selectionIds?.length ?? 0}
@@ -1389,6 +1397,44 @@ export function MapCanvas() {
 
             {/* Edit every selected device card at once - from the node menu on a multi-selection. */}
             {bulkEditIds !== null && <BulkEditDevicesDialog deviceIds={bulkEditIds} onClose={() => setBulkEditIds(null)} />}
+
+            {/* Take a whole selection off this map, after a confirmation. */}
+            {removeIds !== null && activeMapId !== null && (
+                <ConfirmDialog
+                    title={`Remove ${removeIds.length} devices from this map?`}
+                    icon={<EyeSlash weight="light" className="h-5 w-5" />}
+                    message={
+                        <>
+                            They come off this map only: they stay monitored, keep their links and history, and stay on any other maps.
+                            Their arrangement here is lost - add them back and they'll need placing again.
+                        </>
+                    }
+                    confirmLabel="Remove from map"
+                    busy={removeManyFromMap.isPending}
+                    onConfirm={() =>
+                        removeManyFromMap.mutate(
+                            { mapId: activeMapId, deviceIds: removeIds },
+                            {
+                                onSuccess: ({ removed, failed }) => {
+                                    setRemoveIds(null);
+                                    if (selectedDeviceId !== null && removeIds.includes(selectedDeviceId)) selectDevice(null);
+                                    const what = (n: number) => (n === 1 ? '1 device' : `${n} devices`);
+                                    pushToast(
+                                        failed > 0
+                                            ? { title: `Couldn't remove ${what(failed)}`, detail: removed > 0 ? `${what(removed)} removed.` : undefined, tone: 'down' }
+                                            : { title: `Removed ${what(removed)} from this map`, tone: 'info' },
+                                    );
+                                },
+                                onError: () => {
+                                    setRemoveIds(null);
+                                    pushToast({ title: 'Couldn\'t remove the devices', tone: 'down' });
+                                },
+                            },
+                        )
+                    }
+                    onClose={() => setRemoveIds(null)}
+                />
+            )}
 
             {/* Put the right-clicked device (or the selection) on another map as well. */}
             {addToOtherMap !== null && activeMapId !== null && (

@@ -208,6 +208,26 @@ export function useAddDevicesToMap() {
     });
 }
 
+/**
+ * Take several devices off one map at once (node menu on a multi-selection). Like the single
+ * remove, they stay monitored and keep their links, history and any other maps.
+ */
+export function useRemoveDevicesFromMap() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ mapId, deviceIds }: { mapId: number; deviceIds: number[] }): Promise<{ removed: number; failed: number }> => {
+            const results = await Promise.allSettled(deviceIds.map((id) => apiClient.delete(`/maps/${mapId}/devices/${id}`)));
+            const failed = results.filter((r) => r.status === 'rejected').length;
+            return { removed: deviceIds.length - failed, failed };
+        },
+        onSettled: (_r, _e, { mapId }) => {
+            qc.invalidateQueries({ queryKey: mapKeys.detail(mapId) });
+            qc.invalidateQueries({ queryKey: mapKeys.all });
+            qc.invalidateQueries({ queryKey: deviceKeys.all });
+        },
+    });
+}
+
 export function useRemoveDeviceFromMap() {
     const qc = useQueryClient();
     return useMutation({
