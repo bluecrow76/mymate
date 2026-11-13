@@ -14,6 +14,9 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- Remove from this map works on a multi-selection too: right-click one of the selected cards and
+  choose Remove N devices from this map. It asks first, since their arrangement on the map is lost.
+  They stay monitored and on any other maps.
 - Right-click a device on the map and choose Add to another map to show it on a second map as
   well. It stays on the current map. With several devices selected, they're all added and keep
   their arrangement. Any already on the chosen map are left where they are there.
