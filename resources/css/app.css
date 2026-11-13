@@ -1174,3 +1174,9 @@ label,
         animation: none !important;
     }
 }
+
+/* Arrange in grid, placement step: the whole map reads as "click to place" (cards included). */
+.mm-placing .react-flow__pane,
+.mm-placing .react-flow__node {
+    cursor: crosshair !important;
+}

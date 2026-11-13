@@ -9,12 +9,13 @@ import {
     useNodesState,
     useEdgesState,
     useReactFlow,
+    ViewportPortal,
     type Node,
     type Edge,
     type Connection,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { AlignBottom, AlignCenterHorizontal, AlignCenterVertical, AlignLeft, AlignRight, AlignTop, ArrowCounterClockwise, ArrowsOutCardinal, CaretDown, CircleDashed, Columns, Cube, DotsNine, DotsThreeVertical, Globe, Graph, ImageSquare, Info, LineSegment, LinkBreak, MagnetStraight, Note, Plus, PushPin, Rows, Sparkle, TreeStructure, WaveSine } from '@phosphor-icons/react';
+import { AlignBottom, AlignCenterHorizontal, AlignCenterVertical, AlignLeft, AlignRight, AlignTop, ArrowCounterClockwise, ArrowsOutCardinal, CaretDown, CircleDashed, Columns, Cube, DotsNine, DotsThreeVertical, Globe, Graph, GridFour, ImageSquare, Info, LineSegment, LinkBreak, MagnetStraight, Note, Plus, PushPin, Rows, Sparkle, TreeStructure, WaveSine } from '@phosphor-icons/react';
 import { DeviceDialog, type DeviceDialogDefaults } from '../../devices/components/DeviceDialog';
 import { useContrast, useTheme } from '../../../lib/theme';
 import { DeviceNode } from '../nodes/DeviceNode';
@@ -40,6 +41,7 @@ import { DeleteDeviceDialog } from './DeleteDeviceDialog';
 import { MapControls } from './MapControls';
 import { MapBackground } from './MapBackground';
 import { OspfCostControl } from './OspfCostControl';
+import { GridArrangeDialog, type GridArrangeChoice } from './GridArrangeDialog';
 import { ConfirmDialog } from '../../../components/Dialog';
 import { useMap, useSaveMapPositions, isEmptyBatch, type MapPositionBatch, useAddDeviceToMap, useRemoveDeviceFromMap, useCreateMapLink, useUpdateMapLink, useDeleteMapLink, useRemoveChildMap, useCreateMapNote, useUpdateMapNote, useDeleteMapNote } from '../../maps/api/maps';
 import { useMapChannel } from '../hooks/useMapChannel';
@@ -54,6 +56,7 @@ import { useDeleteLink } from '../api/deleteLink';
 import { useUpdateLink } from '../api/updateLink';
 import { computeLayout, dependencyLayout, declump, type LayoutKind } from '../lib/layout';
 import { alignBoxes, ALIGN_LABEL, ALIGN_MIN, type AlignKind } from '../lib/align';
+import { gridPositions, nearestSnapPoint, type GridCard } from '../lib/gridArrange';
 import { useCaptureLayoutSnapshot, useUndoLayout, useLayoutSnapshotCount } from '../api/layoutSnapshots';
 import { bundleParallel, computeData, linkUtil, metaOf, type EdgeMeta, type UtilMap } from '../lib/edgeData';
 import { selectDevice, setEdgeStyle, setEdgeAttach, setInspectorOpen, setLayoutKind, setMapGrid, useActiveMapId, useEdgeStyle, useEdgeAttach, useLayoutKind, useMapGrid, useMapGridColor, useMapGridSize, useSelectedDeviceId } from '../../../lib/shellStore';
@@ -209,6 +212,11 @@ export function MapCanvas() {
     const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null);
     const [parentForId, setParentForId] = useState<number | null>(null); // parent picker
     const [deleteDeviceId, setDeleteDeviceId] = useState<number | null>(null); // delete confirmation
+    // Arrange in grid (Tidy menu): the settings dialog, then "click where it goes" on the map.
+    // The cards are captured when Arrange is pressed, so the click only has to say where.
+    const [gridDialog, setGridDialog] = useState(false);
+    const [gridPlace, setGridPlace] = useState<{ cards: GridCard[]; choice: GridArrangeChoice } | null>(null);
+    const [gridHover, setGridHover] = useState<{ x: number; y: number } | null>(null); // snapped top-left under the pointer
 
     // Stable so threading it into edge data doesn\'t churn the edge-build effect.
     const requestDelete = useCallback((linkId: number) => setDeleteLinkId(linkId), []);
@@ -806,6 +814,82 @@ export function MapCanvas() {
         [activeMapId, selectedDevices, captureSnapshot, applyPositions],
     );
 
+    // Arrange in grid: the dialog asks for the shape, gaps, sort and fill; Arrange then puts the map
+    // in placement mode and the next click on it sets the grid's top-left corner (nearest snap
+    // point). Device cards only, like Align, so Undo tidy covers it.
+    const openGridArrange = useCallback(() => {
+        setLayoutMenu(false);
+        setToolsMenu(false);
+        if (selectedDevices.length >= 2) setGridDialog(true);
+    }, [selectedDevices.length]);
+
+    const startGridPlace = useCallback(
+        (choice: GridArrangeChoice) => {
+            setGridDialog(false);
+            const byId = new Map(mapDevices.map((d) => [d.id, d]));
+            const cards: GridCard[] = selectedDevices.map((n) => {
+                const d = byId.get(Number(n.id));
+                return {
+                    id: Number(n.id),
+                    w: n.measured?.width ?? n.width ?? CARD_W,
+                    h: n.measured?.height ?? n.height ?? CARD_H,
+                    name: d ? displayName(d) : '',
+                    ip: d?.mgmt_ip ?? null,
+                };
+            });
+            if (cards.length >= 2) setGridPlace({ cards, choice });
+        },
+        [mapDevices, selectedDevices],
+    );
+
+    const cancelGridPlace = useCallback(() => {
+        setGridPlace(null);
+        setGridHover(null);
+    }, []);
+
+    const placeGridAt = useCallback(
+        async (clientX: number, clientY: number) => {
+            if (!gridPlace || activeMapId === null) return;
+            const { cards, choice } = gridPlace;
+            cancelGridPlace();
+            const origin = nearestSnapPoint(screenToFlowPosition({ x: clientX, y: clientY }), gridSize);
+            const positions = gridPositions(cards, { ...choice, snap: gridSize }, origin);
+            try {
+                await captureSnapshot.mutateAsync({ mapId: activeMapId, note: 'Arrange in grid' });
+            } catch {
+                // Snapshot failed - still apply, just without an undo point (as runLayout does).
+            }
+            applyPositions(positions, { fit: false });
+            // The placing click cleared React Flow's selection; keep the arranged cards selected so
+            // they can be nudged or aligned straight away.
+            setNodes((nds) => nds.map((n) => (n.type === 'device' && positions[Number(n.id)] ? { ...n, selected: true } : n)));
+        },
+        [gridPlace, activeMapId, cancelGridPlace, screenToFlowPosition, gridSize, captureSnapshot, applyPositions, setNodes],
+    );
+
+    // Placement mode ends on Escape, a map switch, or opening playback (nothing moves in the past).
+    useEffect(() => {
+        if (!gridPlace) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') cancelGridPlace();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [gridPlace, cancelGridPlace]);
+    useEffect(() => {
+        cancelGridPlace();
+    }, [activeMapId, cancelGridPlace]);
+    useEffect(() => {
+        if (!canDrag) cancelGridPlace();
+    }, [canDrag, cancelGridPlace]);
+
+    // Outline of where each card would land, following the pointer.
+    const gridPreview = useMemo(() => {
+        if (!gridPlace || !gridHover) return [];
+        const pos = gridPositions(gridPlace.cards, { ...gridPlace.choice, snap: gridSize }, gridHover);
+        return gridPlace.cards.map((c) => ({ id: c.id, x: pos[c.id].x, y: pos[c.id].y, w: c.w, h: c.h }));
+    }, [gridPlace, gridHover, gridSize]);
+
     // Find-a-device search (React Flow has no built-in search - `fitView({ nodes })` is the
     // pan/zoom primitive). Selects it the same way a canvas click would (inspector + the
     // node\'s own selection ring), then frames just that node - capped zoom so a single card
@@ -828,7 +912,12 @@ export function MapCanvas() {
     return (
         <>
             {/* The canvas fills what is left under the toolbar strip. React Flow ignores a user `position`/`height` on its own root, hence the wrapper. */}
-            <div className="absolute inset-x-0 bottom-0" style={{ top: toolbarH }}>
+            <div
+                className={`absolute inset-x-0 bottom-0 ${gridPlace ? 'mm-placing' : ''}`}
+                style={{ top: toolbarH }}
+                onMouseMove={gridPlace ? (e) => setGridHover(nearestSnapPoint(screenToFlowPosition({ x: e.clientX, y: e.clientY }), gridSize)) : undefined}
+                onMouseLeave={gridPlace ? () => setGridHover(null) : undefined}
+            >
             <ReactFlow
                 nodes={nodes}
                 edges={edges}
@@ -839,8 +928,10 @@ export function MapCanvas() {
                 // Loose: any handle is both in & out - direction doesn\'t matter (floating
                 // edges compute geometry from the cards, so a link\'s a/b end is cosmetic).
                 connectionMode={ConnectionMode.Loose}
-                nodesDraggable={canDrag}
-                nodesConnectable={canDrag}
+                // While placing a grid, a click anywhere means "here": nothing drags, connects or selects.
+                nodesDraggable={canDrag && !gridPlace}
+                nodesConnectable={canDrag && !gridPlace}
+                elementsSelectable={!gridPlace}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
                 onNodeDragStop={(_, node, dragged) => {
@@ -903,11 +994,19 @@ export function MapCanvas() {
                     if (e.type === 'util') deleteLink.mutate(Number(e.id));
                     else if (e.type === 'mapLink' && activeMapId !== null) deleteMapLink.mutate({ mapId: activeMapId, mapLinkId: Number(String(e.id).replace('maplink:', '')) });
                 })}
-                onEdgeClick={(_, edge) => {
+                onEdgeClick={(e, edge) => {
+                    if (gridPlace) {
+                        void placeGridAt(e.clientX, e.clientY);
+                        return;
+                    }
                     if (edge.type === 'util') setHistoryLinkId(Number(edge.id));
                     else if (edge.type === 'mapLink') setEditMapLinkId(Number(String(edge.id).replace('maplink:', '')));
                 }}
-                onNodeClick={(_, node) => {
+                onNodeClick={(e, node) => {
+                    if (gridPlace) {
+                        void placeGridAt(e.clientX, e.clientY);
+                        return;
+                    }
                     if (node.type === 'device') {
                         selectDevice(Number(node.id));
                         setInspectorOpen(true); // surface the inspector sheet on phones/tablets
@@ -918,13 +1017,13 @@ export function MapCanvas() {
                 // (focus ring + the inspector follows along). Admin-only, like every write here;
                 // other node types keep the browser's own menu.
                 onNodeContextMenu={(e, node) => {
-                    if (!isAdmin || node.type !== 'device') return;
+                    if (!isAdmin || node.type !== 'device' || gridPlace) return;
                     e.preventDefault();
                     selectDevice(Number(node.id));
                     setNodeMenu({ deviceId: Number(node.id), x: e.clientX, y: e.clientY });
                 }}
                 // Click the empty canvas to deselect - the inspector then shows the map tools.
-                onPaneClick={() => selectDevice(null)}
+                onPaneClick={(e) => (gridPlace ? void placeGridAt(e.clientX, e.clientY) : selectDevice(null))}
                 // Drag a device from the palette (inspector) onto the map to place it there.
                 onDragOver={(e) => {
                     if (e.dataTransfer.types.includes('application/mymate-device')) {
@@ -977,6 +1076,18 @@ export function MapCanvas() {
                         size={1.5}
                         color={theme === 'light' ? '#d6d6d6' : '#3d3d3d'}
                     />
+                )}
+                {gridPreview.length > 0 && (
+                    <ViewportPortal>
+                        {gridPreview.map((b) => (
+                            <div
+                                key={b.id}
+                                aria-hidden
+                                className="pointer-events-none absolute rounded-[1.25rem] border-2 border-dashed border-emerald-400/70 bg-emerald-400/[0.06]"
+                                style={{ transform: `translate(${b.x}px, ${b.y}px)`, width: b.w, height: b.h }}
+                            />
+                        ))}
+                    </ViewportPortal>
                 )}
                 {/* Custom background image (GitHub #37) - self-contained layer + its admin panel. */}
                 <MapBackground mapId={activeMapId} />
@@ -1184,6 +1295,14 @@ export function MapCanvas() {
                                             <span className="flex-1">{ALIGN_LABEL[kind]}</span>
                                         </button>
                                     ))}
+                                    <button
+                                        onClick={openGridArrange}
+                                        disabled={!canAlign || captureSnapshot.isPending}
+                                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left text-xs text-white/75 transition-colors duration-200 ease-fluid hover:bg-white/10 disabled:pointer-events-none disabled:opacity-40"
+                                    >
+                                        <GridFour weight="light" className="h-4 w-4" />
+                                        <span className="flex-1">Arrange in grid…</span>
+                                    </button>
                                 </div>
                             </>
                         )}
@@ -1259,6 +1378,9 @@ export function MapCanvas() {
                                                             <Icon weight="light" className="h-4 w-4" /> {ALIGN_LABEL[kind]}
                                                         </button>
                                                     ))}
+                                                    <button onClick={openGridArrange} disabled={captureSnapshot.isPending} className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left text-xs text-white/75 transition-colors hover:bg-white/10 disabled:opacity-40">
+                                                        <GridFour weight="light" className="h-4 w-4" /> Arrange in grid…
+                                                    </button>
                                                 </>
                                             )}
                                             {snapshotCount > 0 && (
@@ -1274,6 +1396,23 @@ export function MapCanvas() {
                     </div>
                 </div>
             </div>
+
+            {/* Arrange in grid, placement step: the next click on the map sets the top-left corner. */}
+            {gridPlace && (
+                <div className="absolute left-1/2 z-20 flex -translate-x-1/2 items-center gap-3 rounded-full bg-surface/95 py-1.5 pl-4 pr-1.5 text-xs text-white/80 shadow-[0_20px_60px_-15px_rgba(0,0,0,0.9)] ring-1 ring-emerald-400/30 backdrop-blur-xl" style={{ top: toolbarH + 12 }} role="status">
+                    <GridFour weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />
+                    <span>
+                        Click where the grid's top-left corner should go
+                        <span className="hidden text-white/40 sm:inline"> · Esc to cancel</span>
+                    </span>
+                    <button onClick={cancelGridPlace} className="rounded-full px-3 py-1 font-medium text-white/60 ring-1 ring-white/10 transition-colors hover:bg-white/10 hover:text-white">
+                        Cancel
+                    </button>
+                </div>
+            )}
+            {gridDialog && (
+                <GridArrangeDialog count={selectedDevices.length} snap={gridSize} onArrange={startGridPlace} onClose={() => setGridDialog(false)} />
+            )}
 
             {play.pb.active && <PlaybackBar pb={play.pb} inset="left-16 right-4" deviceName={(id) => devices?.find((d) => d.id === id)?.name ?? `device ${id}`} />}
 
