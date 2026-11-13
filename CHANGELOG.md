@@ -13,6 +13,14 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- Tidy layout > **Arrange in grid…** lays the selected device cards out in rows and columns. Choose
+  the columns and rows (they start near-square for the number selected), the horizontal and
+  vertical gaps in snap points, sort by name or by IP address (numerically, octet by octet, so
+  10.1.1.9 comes before 10.1.1.11), and whether to fill across or down. Then click the map where the
+  grid's top-left corner should go: it lands on the nearest snap point, an outline previews it, and
+  every card ends up on the snap grid. Esc cancels, and Undo tidy reverts it.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added
