@@ -183,6 +183,18 @@ class MapController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * Forget where an inter-map portal was placed on this map. A portal with no saved position is
+     * drawn next to its device and follows it when the device moves; once dragged (alone or in a
+     * group) it stays where it was put. Idempotent: resetting one that was never moved is a no-op.
+     */
+    public function resetLinkPosition(Map $map, Link $link): Response
+    {
+        MapLinkPosition::where('map_id', $map->id)->where('link_id', $link->id)->delete();
+
+        return response()->noContent();
+    }
+
     /** Place a device on this map. */
     public function addDevice(Request $request, Map $map): JsonResponse
     {

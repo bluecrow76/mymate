@@ -8,8 +8,10 @@ use App\Models\Device;
 use App\Models\DeviceMapPosition;
 use App\Models\Link;
 use App\Models\Map;
+use App\Models\MapLinkPosition;
 use App\Models\MapNote;
 use App\Models\NetworkInterface;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -127,6 +129,58 @@ class MapApiTest extends TestCase
         $this->getJson("/api/maps/{$townA->id}")
             ->assertJsonPath('data.inter_map_links.0.portal_x', 321)
             ->assertJsonPath('data.inter_map_links.0.portal_y', 654);
+    }
+
+    /** Two maps with a link crossing between them, so map A shows a portal for it. */
+    private function crossMapLink(): array
+    {
+        $townA = Map::factory()->create(['name' => 'Town A']);
+        $townB = Map::factory()->create(['name' => 'Town B']);
+        $devA = Device::factory()->create();
+        $devB = Device::factory()->create();
+        DeviceMapPosition::create(['device_id' => $devA->id, 'map_id' => $townA->id, 'x' => 5, 'y' => 6]);
+        DeviceMapPosition::create(['device_id' => $devB->id, 'map_id' => $townB->id, 'x' => 0, 'y' => 0]);
+        $ifA = NetworkInterface::factory()->create(['device_id' => $devA->id]);
+        $ifB = NetworkInterface::factory()->create(['device_id' => $devB->id]);
+        $link = Link::create(['a_device_id' => $devA->id, 'a_interface_id' => $ifA->id, 'b_device_id' => $devB->id, 'b_interface_id' => $ifB->id]);
+
+        return [$townA, $townB, $link];
+    }
+
+    public function test_resetting_a_portal_position_forgets_it_on_that_map_only(): void
+    {
+        $this->actingAsUser();
+        [$townA, $townB, $link] = $this->crossMapLink();
+        $this->patchJson("/api/maps/{$townA->id}/links/{$link->id}/position", ['x' => 321, 'y' => 654])->assertOk();
+        MapLinkPosition::create(['map_id' => $townB->id, 'link_id' => $link->id, 'x' => 1, 'y' => 2]); // another map's pin
+
+        $this->deleteJson("/api/maps/{$townA->id}/links/{$link->id}/position")->assertNoContent();
+
+        $this->assertDatabaseMissing('map_link_positions', ['map_id' => $townA->id, 'link_id' => $link->id]);
+        $this->assertDatabaseHas('map_link_positions', ['map_id' => $townB->id, 'link_id' => $link->id]);
+        // Back to "not yet positioned": the canvas draws it next to its device again.
+        $this->getJson("/api/maps/{$townA->id}")
+            ->assertJsonPath('data.inter_map_links.0.portal_x', null)
+            ->assertJsonPath('data.inter_map_links.0.portal_y', null);
+    }
+
+    public function test_resetting_a_portal_that_was_never_moved_is_harmless(): void
+    {
+        $this->actingAsUser();
+        [$townA, , $link] = $this->crossMapLink();
+
+        $this->deleteJson("/api/maps/{$townA->id}/links/{$link->id}/position")->assertNoContent();
+        $this->assertDatabaseCount('map_link_positions', 0);
+    }
+
+    public function test_a_read_only_operator_cannot_reset_a_portal_position(): void
+    {
+        [$townA, , $link] = $this->crossMapLink();
+        MapLinkPosition::create(['map_id' => $townA->id, 'link_id' => $link->id, 'x' => 321, 'y' => 654]);
+        $this->actingAs(User::factory()->create());
+
+        $this->deleteJson("/api/maps/{$townA->id}/links/{$link->id}/position")->assertForbidden();
+        $this->assertDatabaseHas('map_link_positions', ['map_id' => $townA->id, 'link_id' => $link->id]);
     }
 
     public function test_save_position_and_add_remove_device(): void

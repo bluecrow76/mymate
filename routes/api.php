@@ -340,6 +340,8 @@ Route::middleware(['auth:sanctum', EnsurePasskeyVerified::class, RestrictWritesT
     // Bulk: every node moved in one gesture (group drag, Tidy) lands in one transaction (GitHub #44).
     Route::patch('maps/{map}/positions', [MapController::class, 'savePositions'])->name('maps.positions.save-many');
     Route::patch('maps/{map}/links/{link}/position', [MapController::class, 'saveLinkPosition'])->name('maps.links.position');
+    // Forget a portal's saved spot, so it's drawn next to its device again and follows it.
+    Route::delete('maps/{map}/links/{link}/position', [MapController::class, 'resetLinkPosition'])->name('maps.links.position.reset');
     // Every device placed on this map, full rows - what the canvas and inspector draw (GitHub #22).
     Route::get('maps/{map}/devices', [MapController::class, 'devices'])->name('maps.devices.index');
     // Historical playback for the geo map (GitHub #22): frames of link bps + device status/rtt.

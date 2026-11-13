@@ -1180,3 +1180,7 @@ label,
 .mm-placing .react-flow__node {
     cursor: crosshair !important;
 }
+/* A portal card is a button (click = go to its map); while placing, the click must reach the map. */
+.mm-placing .react-flow__node-portal button {
+    pointer-events: none;
+}

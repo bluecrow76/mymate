@@ -230,6 +230,38 @@ export function useRemoveChildMap() {
     });
 }
 
+/**
+ * Forget an inter-map portal's saved spot on this map, so it's drawn next to its device again and
+ * follows it. The cache is patched straight away (portal_x/y null re-places it on the canvas).
+ */
+export function useResetPortalPosition() {
+    const qc = useQueryClient();
+    return useMutation({
+        mutationFn: async ({ mapId, linkId }: { mapId: number; linkId: number }): Promise<void> => {
+            await apiClient.delete(`/maps/${mapId}/links/${linkId}/position`);
+        },
+        onMutate: async ({ mapId, linkId }) => {
+            const key = mapKeys.detail(mapId);
+            await qc.cancelQueries({ queryKey: key });
+            const previous = qc.getQueryData<MapDetail>(key);
+            if (previous) {
+                qc.setQueryData<MapDetail>(key, {
+                    ...previous,
+                    inter_map_links: previous.inter_map_links.map((il) => (il.id === linkId ? { ...il, portal_x: null, portal_y: null } : il)),
+                });
+            }
+            return { previous };
+        },
+        onError: (_err, { mapId }, ctx) => {
+            if (ctx?.previous) qc.setQueryData<MapDetail>(mapKeys.detail(mapId), ctx.previous);
+            pushToast({ title: "Couldn't reset the portal's position", tone: 'down' });
+        },
+        onSettled: (_d, _e, { mapId }) => {
+            void qc.invalidateQueries({ queryKey: mapKeys.detail(mapId) });
+        },
+    });
+}
+
 export interface CreateMapLinkInput {
     mapId: number;
     a_map_id: number;

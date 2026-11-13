@@ -20,6 +20,10 @@ of commit subjects.
   10.1.1.9 comes before 10.1.1.11), and whether to fill across or down. Then click the map where the
   grid's top-left corner should go: it lands on the nearest snap point, an outline previews it, and
   every card ends up on the snap grid. Esc cancels, and Undo tidy reverts it.
+- Right-click an inter-map portal (the purple card a link to another map ends on) for Go to that
+  map and Reset position. A portal you've never moved sits next to its device and follows it, but
+  one that's been dragged, even as part of a group selection, stays where it was put. Reset
+  position puts it back next to its device so it follows again. Admin only.
 - Graphs can look back in time: arrows next to the range step the window back and forward by its
   own length, so a 6h graph can show any six hours still kept, not only the latest (#59).
 - The Devices tab sorts by RouterOS version (newest or oldest first, 7.9 before 7.10) and filters
