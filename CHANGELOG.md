@@ -14,6 +14,10 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- Right-click an inter-map portal (the purple card a link to another map ends on) for Go to that
+  map and Reset position. A portal you've never moved sits next to its device and follows it, but
+  one that's been dragged, even as part of a group selection, stays where it was put. Reset
+  position puts it back next to its device so it follows again. Admin only.
 - Tidy layout > **Arrange in grid…** lays the selected device cards out in rows and columns. Choose
   the columns and rows (they start near-square for the number selected), the horizontal and
   vertical gaps in snap points, sort by name or by IP address (numerically, octet by octet, so

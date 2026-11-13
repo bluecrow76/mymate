@@ -37,6 +37,7 @@ import { MapBreadcrumb } from '../../maps/components/MapBreadcrumb';
 import { MapSearch } from './MapSearch';
 import { MapNodeMenu, type NodeMenuState } from './MapNodeMenu';
 import { BulkEditDevicesDialog } from '../../devices/components/BulkEditDevicesDialog';
+import { MapPortalMenu, type PortalMenuState } from './MapPortalMenu';
 import { SetParentDialog } from './SetParentDialog';
 import { DeleteDeviceDialog } from './DeleteDeviceDialog';
 import { MapControls } from './MapControls';
@@ -44,7 +45,7 @@ import { MapBackground } from './MapBackground';
 import { OspfCostControl } from './OspfCostControl';
 import { GridArrangeDialog, type GridArrangeChoice } from './GridArrangeDialog';
 import { ConfirmDialog } from '../../../components/Dialog';
-import { useMap, useSaveMapPositions, isEmptyBatch, type MapPositionBatch, useAddDeviceToMap, useRemoveDeviceFromMap, useCreateMapLink, useUpdateMapLink, useDeleteMapLink, useRemoveChildMap, useCreateMapNote, useUpdateMapNote, useDeleteMapNote } from '../../maps/api/maps';
+import { useMap, useSaveMapPositions, isEmptyBatch, type MapPositionBatch, useAddDeviceToMap, useRemoveDeviceFromMap, useCreateMapLink, useUpdateMapLink, useDeleteMapLink, useRemoveChildMap, useCreateMapNote, useUpdateMapNote, useDeleteMapNote, useResetPortalPosition } from '../../maps/api/maps';
 import { useMapChannel } from '../hooks/useMapChannel';
 import { useMapCanvasPlayback } from '../hooks/useMapCanvasPlayback';
 import { PlaybackBadge, PlaybackBar } from '../../geo/components/PlaybackBar';
@@ -61,7 +62,7 @@ import { flashPlacedDevice } from '../lib/mapToolsSession';
 import { gridPositions, nearestSnapPoint, type GridCard } from '../lib/gridArrange';
 import { useCaptureLayoutSnapshot, useUndoLayout, useLayoutSnapshotCount } from '../api/layoutSnapshots';
 import { bundleParallel, computeData, linkUtil, metaOf, type EdgeMeta, type UtilMap } from '../lib/edgeData';
-import { selectDevice, setEdgeStyle, setEdgeAttach, setInspectorOpen, setLayoutKind, setMapGrid, useActiveMapId, useEdgeStyle, useEdgeAttach, useLayoutKind, useMapGrid, useMapGridColor, useMapGridSize, useSelectedDeviceId } from '../../../lib/shellStore';
+import { selectDevice, setActiveMap, setEdgeStyle, setEdgeAttach, setInspectorOpen, setLayoutKind, setMapGrid, useActiveMapId, useEdgeStyle, useEdgeAttach, useLayoutKind, useMapGrid, useMapGridColor, useMapGridSize, useSelectedDeviceId } from '../../../lib/shellStore';
 import { pushToast } from '../../../lib/toast';
 import { fmtDuration } from '../../device-page/lib/format';
 import type { AlertStateChangedPayload, Device, DeviceRebootedPayload, DeviceStatus, FaceSensorReading, InterfaceUtilUpdatedPayload } from '../../../types';
@@ -227,6 +228,8 @@ export function MapCanvas() {
     }, [toolsMenu]);
     // Right-click device management (GitHub #45): the node menu, and the two dialogs it opens.
     const [nodeMenu, setNodeMenu] = useState<NodeMenuState | null>(null);
+    const [portalMenu, setPortalMenu] = useState<PortalMenuState | null>(null); // right-click an inter-map portal
+    const resetPortal = useResetPortalPosition();
     const [parentForId, setParentForId] = useState<number | null>(null); // parent picker
     const [deleteDeviceId, setDeleteDeviceId] = useState<number | null>(null); // delete confirmation
     const [bulkEditIds, setBulkEditIds] = useState<number[] | null>(null); // bulk edit of a multi-selection
@@ -896,6 +899,7 @@ export function MapCanvas() {
     }, [gridPlace, cancelGridPlace]);
     useEffect(() => {
         cancelGridPlace();
+        setPortalMenu(null); // a portal menu belongs to the map it was opened on
     }, [activeMapId, cancelGridPlace]);
     useEffect(() => {
         if (!canDrag) cancelGridPlace();
@@ -1035,7 +1039,19 @@ export function MapCanvas() {
                 // (focus ring + the inspector follows along). Admin-only, like every write here;
                 // other node types keep the browser's own menu.
                 onNodeContextMenu={(e, node) => {
-                    if (!isAdmin || node.type !== 'device' || gridPlace) return;
+                    if (gridPlace) {
+                        e.preventDefault(); // placing a grid: no menus until it's placed or cancelled
+                        return;
+                    }
+                    // An inter-map portal: go to its map, or reset a saved position so it follows
+                    // its device again. Admin-only (it's a position change), and not during playback.
+                    if (node.type === 'portal') {
+                        if (!canDrag) return;
+                        e.preventDefault();
+                        setPortalMenu({ linkId: Number(node.id.replace('portal:', '')), x: e.clientX, y: e.clientY });
+                        return;
+                    }
+                    if (!isAdmin || node.type !== 'device') return;
                     e.preventDefault();
                     selectDevice(Number(node.id));
                     // Right-clicking a card inside a multi-selection keeps the selection and offers
@@ -1463,6 +1479,25 @@ export function MapCanvas() {
 
             {/* Right-click device management (GitHub #45). The device is resolved live by id, so a
                 menu left open over a device that has just gone simply closes itself. */}
+            {portalMenu !== null &&
+                (() => {
+                    // Looked up live, like the device menu: a portal that has just gone closes it.
+                    const il = interMapLinks.find((x) => x.id === portalMenu.linkId);
+                    if (!il || activeMapId === null) return null;
+                    const mapId = activeMapId;
+                    return (
+                        <MapPortalMenu
+                            deviceName={il.remote_device_name ?? 'device'}
+                            mapName={il.remote_map_name ?? 'other map'}
+                            pinned={il.portal_x != null && il.portal_y != null}
+                            x={portalMenu.x}
+                            y={portalMenu.y}
+                            onOpenMap={il.remote_map_id != null ? () => setActiveMap(il.remote_map_id) : null}
+                            onReset={() => resetPortal.mutate({ mapId, linkId: il.id })}
+                            onClose={() => setPortalMenu(null)}
+                        />
+                    );
+                })()}
             {nodeMenu !== null &&
                 (() => {
                     const d = (devices ?? []).find((x) => x.id === nodeMenu.deviceId);
