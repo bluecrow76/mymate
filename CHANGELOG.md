@@ -13,6 +13,11 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- Hovering a link between two devices on the map (the line or its label) shows the two devices
+  and the port the link uses on each end, with each port's state, speed, description, optical
+  levels and OSPF cost, plus the link's medium, capacity and live load each way.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added

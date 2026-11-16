@@ -28,6 +28,7 @@ import { UtilEdge, type UtilEdgeData } from '../edges/UtilEdge';
 import { MapLinkEdge } from '../edges/MapLinkEdge';
 import { ChildLinkEdge } from '../edges/ChildLinkEdge';
 import { LinkBinderDialog, type PendingLink } from './LinkBinderDialog';
+import { LinkTooltip, endOf, type LinkHover, type LinkLive } from './LinkTooltip';
 import { LinkHistoryDialog } from './LinkHistoryDialog';
 import { AddChildMapDialog } from './AddChildMapDialog';
 import { MapLinkEditor } from './MapLinkEditor';
@@ -198,6 +199,9 @@ export function MapCanvas() {
     const [deviceDialog, setDeviceDialog] = useState<{ defaults?: DeviceDialogDefaults } | null>(null);
     const [pending, setPending] = useState<PendingLink | null>(null);
     const [historyLinkId, setHistoryLinkId] = useState<number | null>(null);
+    // Pointer over a device link (its wire or its label) -> the ports-on-each-end hover card.
+    const [linkHover, setLinkHover] = useState<LinkHover | null>(null);
+    useEffect(() => setLinkHover(null), [activeMapId]); // a link can be on more than one map
     const [deleteLinkId, setDeleteLinkId] = useState<number | null>(null);
     const [addChildMap, setAddChildMap] = useState(false); // "Add map" dialog (place a child map)
     const [addImage, setAddImage] = useState(false); // image library picker (GitHub #53)
@@ -569,7 +573,12 @@ export function MapCanvas() {
             sourceHandle: l.a_handle ?? undefined,
             targetHandle: l.b_handle ?? undefined,
             type: 'util',
-            data: { ...computeData(metaOf(l), linkUtil(l), statusRef.current), mediaType: l.media_type, onRemove: isAdmin ? () => requestDelete(l.id) : undefined },
+            data: {
+                ...computeData(metaOf(l), linkUtil(l), statusRef.current),
+                mediaType: l.media_type,
+                onRemove: isAdmin ? () => requestDelete(l.id) : undefined,
+                onHover: (at: { x: number; y: number } | null) => setLinkHover(at ? { linkId: l.id, ...at } : null),
+            },
         }));
         const interEdges: Edge[] = interMapLinks.map((il) => ({
             id: `inter:${il.id}`,
@@ -921,7 +930,15 @@ export function MapCanvas() {
                     if (e.type === 'util') deleteLink.mutate(Number(e.id));
                     else if (e.type === 'mapLink' && activeMapId !== null) deleteMapLink.mutate({ mapId: activeMapId, mapLinkId: Number(String(e.id).replace('maplink:', '')) });
                 })}
+                // Hovering a device link's wire shows its hover card (the label reports its own hover).
+                onEdgeMouseEnter={(e, edge) => edge.type === 'util' && setLinkHover({ linkId: Number(edge.id), x: e.clientX, y: e.clientY })}
+                onEdgeMouseMove={(e, edge) => edge.type === 'util' && setLinkHover({ linkId: Number(edge.id), x: e.clientX, y: e.clientY })}
+                onEdgeMouseLeave={() => setLinkHover(null)}
+                // Anything that moves the map or a card under the pointer drops it.
+                onMoveStart={() => setLinkHover(null)}
+                onNodeDragStart={() => setLinkHover(null)}
                 onEdgeClick={(_, edge) => {
+                    setLinkHover(null);
                     if (edge.type === 'util') setHistoryLinkId(Number(edge.id));
                     else if (edge.type === 'mapLink') setEditMapLinkId(Number(String(edge.id).replace('maplink:', '')));
                 }}
@@ -1383,6 +1400,15 @@ export function MapCanvas() {
                     }}
                 />
             )}
+
+            {/* Hover a device link -> the two devices, the port on each end, and the load each way. */}
+            {linkHover && !historyLinkId && !nodeMenu && (() => {
+                const link = links?.find((l) => l.id === linkHover.linkId);
+                if (!link) return null;
+                const dev = (id: number) => devices?.find((d) => d.id === id);
+                const live = edges.find((e) => e.id === String(link.id))?.data as LinkLive | undefined;
+                return <LinkTooltip key={link.id} hover={linkHover} link={link} a={endOf(dev(link.a_device_id))} b={endOf(dev(link.b_device_id))} live={live} />;
+            })()}
 
             {/* Single-click an edge -> history + an Edit tab to re-bind either end. */}
             {historyLinkId !== null && devices && links?.some((l) => l.id === historyLinkId) && (
