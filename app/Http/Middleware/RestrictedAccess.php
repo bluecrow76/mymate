@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Support\AuthSettings;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -35,6 +36,11 @@ class RestrictedAccess
 
         $name = (string) ($request->route()?->getName() ?? '');
         $allowed = self::matches($name, self::ALLOWED) && ! self::matches($name, self::DENIED);
+        // Outages are opt-in (Settings > Security). OutageController scopes them to the operator's
+        // devices; this only decides whether the page is theirs at all.
+        if (! $allowed && self::matches($name, ['outages'])) {
+            $allowed = app(AuthSettings::class)->restrictedOutages();
+        }
 
         abort_unless($allowed, 403, 'Your account is limited to the maps you have been granted.');
 

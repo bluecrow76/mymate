@@ -9,10 +9,26 @@ class OutageResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $device = $this->device;
+
         return [
             'id' => $this->id,
             'device_id' => $this->device_id,
-            'device_name' => $this->device?->name,
+            'device_name' => $device?->name,
+            'device_alias' => $device?->alias,
+            // The device's management IP as it is now (outages don't record the IP at the time).
+            'device_ip' => $device?->mgmt_ip,
+            // Maps the device is placed on that this operator can open, by name - the page jumps to
+            // one. Empty when it's on none (or none visible), so the page opens the device instead.
+            'device_maps' => $device
+                ? $device->mapPositions
+                    ->map(fn ($p) => $p->map)
+                    ->filter()
+                    ->sortBy(fn ($m) => mb_strtolower($m->name))
+                    ->map(fn ($m) => ['id' => $m->id, 'name' => $m->name])
+                    ->values()
+                    ->all()
+                : [],
             'started_at' => $this->started_at,
             'ended_at' => $this->ended_at,
             'duration_s' => $this->duration_s,

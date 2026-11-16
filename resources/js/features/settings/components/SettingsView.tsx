@@ -1560,9 +1560,10 @@ function SecuritySection() {
     const update = useUpdateSecuritySettings();
     const [confirming, setConfirming] = useState(false);
     const required = data?.passkey_required ?? false;
+    const restrictedOutages = data?.restricted_outages ?? false;
 
     function apply(next: boolean) {
-        update.mutate(next, {
+        update.mutate({ passkey_required: next }, {
             onSuccess: () => { setConfirming(false); pushToast({ title: next ? 'Passkeys are now required' : 'Passkey requirement off', tone: 'info' }); },
             onError: () => { setConfirming(false); pushToast({ title: 'Couldn\'t change the setting', tone: 'down' }); },
         });
@@ -1573,8 +1574,8 @@ function SecuritySection() {
             <div className="mb-4 flex items-center gap-2">
                 <ShieldCheck weight="light" className="h-4 w-4 text-white/40" />
                 <div>
-                    <h2 className="text-sm font-bold text-white">Sign-in security</h2>
-                    <p className="text-xs text-white/40">Require every operator to use a passkey as a second factor. Needs HTTPS.</p>
+                    <h2 className="text-sm font-bold text-white">Sign-in &amp; access</h2>
+                    <p className="text-xs text-white/40">Passkeys as a second factor (needs HTTPS), and what restricted operators can open.</p>
                 </div>
             </div>
 
@@ -1582,6 +1583,27 @@ function SecuritySection() {
                 <span className="min-w-0 flex-1 text-sm text-white/70">Require passkeys for all operators</span>
                 <Toggle checked={required} disabled={update.isPending} onChange={(next) => (next ? setConfirming(true) : apply(false))} />
             </label>
+
+            <div className="mt-5 border-t border-white/[0.06] pt-4">
+                <label className="flex items-center justify-between gap-4">
+                    <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-white/70">Restricted operators can see Outages</span>
+                        <span className="mt-0.5 block text-xs text-white/40">
+                            Only outages for devices on the maps they've been given. When off, the Outages page isn't shown to them at all.
+                        </span>
+                    </span>
+                    <Toggle
+                        checked={restrictedOutages}
+                        disabled={update.isPending}
+                        onChange={(next) =>
+                            update.mutate({ restricted_outages: next }, {
+                                onSuccess: () => pushToast({ title: next ? 'Restricted operators can now see Outages' : 'Outages hidden from restricted operators', tone: 'info' }),
+                                onError: () => pushToast({ title: 'Couldn\'t change the setting', tone: 'down' }),
+                            })
+                        }
+                    />
+                </label>
+            </div>
 
             {confirming && (
                 <ConfirmDialog

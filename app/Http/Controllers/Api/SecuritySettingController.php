@@ -9,7 +9,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * The authentication-policy settings (admin). Currently just the mandatory-passkey toggle. `show`
+ * The access-policy settings (admin): the mandatory-passkey toggle and whether restricted operators
+ * may open the Outages page. `show`
  * also reports how many operators would be forced to enrol if it were switched on, so the UI can
  * warn before flipping it (wallboard/kiosk accounts on TVs are the ones to watch - mark them exempt).
  */
@@ -24,8 +25,17 @@ class SecuritySettingController extends Controller
 
     public function update(Request $request, AuthSettings $settings): JsonResponse
     {
-        $data = $request->validate(['passkey_required' => ['required', 'boolean']]);
-        $settings->setPasskeyRequired($data['passkey_required']);
+        // Either flag on its own (the UI saves each toggle as it's flipped), at least one of them.
+        $data = $request->validate([
+            'passkey_required' => ['required_without:restricted_outages', 'boolean'],
+            'restricted_outages' => ['required_without:passkey_required', 'boolean'],
+        ]);
+        if (array_key_exists('passkey_required', $data)) {
+            $settings->setPasskeyRequired($data['passkey_required']);
+        }
+        if (array_key_exists('restricted_outages', $data)) {
+            $settings->setRestrictedOutages($data['restricted_outages']);
+        }
 
         return response()->json(['data' => $settings->publicView()]);
     }

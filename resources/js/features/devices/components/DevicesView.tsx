@@ -13,11 +13,17 @@ import { DEFAULT_LIST_PREFS, loadListPrefs, saveListPrefs, type MapFilter } from
 import { StatusDot } from '../../../components/StatusDot';
 import { DeviceTypeBadge } from '../../../components/DeviceTypeBadge';
 import { UpgradeStatusBadge } from '../../../components/UpgradeStatusBadge';
-import { selectDevice, setView } from '../../../lib/shellStore';
 import { openDevicePage } from '../../device-page/lib/location';
 import { ConfirmDialog } from '../../../components/Dialog';
 import { pushToast } from '../../../lib/toast';
-import type { Device, NetworkMap } from '../../../types';
+import type { Device } from '../../../types';
+import { mapsInTreeOrder } from '../../maps/lib/mapTree';
+import { useShowOnMap } from '../../maps/lib/useShowOnMap';
+import { devicePageKeys, type DeviceSummary } from '../../device-page/api/devicePage';
+import { showOnMap } from '../../device-page/lib/location';
+import { apiClient } from '../../../lib/apiClient';
+import { displayName } from '../../../lib/deviceName';
+import { useQueryClient } from '@tanstack/react-query';
 
 type PendingUpgrade = { ids: number[]; willUpgrade: UpgradePlanRow[]; skipped: UpgradePlanRow[] };
 
@@ -128,9 +134,23 @@ export function DevicesView() {
         setVersionFilter(d.version);
     }
 
-    function open(id: number) {
-        selectDevice(id);
-        setView('map');
+    // "Show on map": the list only carries a map count, so ask for the device's maps on click, then
+    // open the right one (a menu when it's on several) and frame the card. Filtered to one map, that's
+    // the map it opens.
+    const queryClient = useQueryClient();
+    const { go: goToMap, menu: mapMenu } = useShowOnMap();
+    async function open(d: Device, at: { x: number; y: number }) {
+        try {
+            const summary = await queryClient.fetchQuery({
+                queryKey: devicePageKeys.summary(d.id),
+                queryFn: async (): Promise<DeviceSummary> => (await apiClient.get<{ data: DeviceSummary }>(`/devices/${d.id}/summary`)).data.data,
+                staleTime: 30_000,
+            });
+            if (filterMapId !== undefined && summary.maps.some((m) => m.id === filterMapId)) showOnMap(d.id, filterMapId);
+            else goToMap(d.id, displayName(d), summary.maps, at);
+        } catch {
+            pushToast({ title: `Couldn't look up the maps ${displayName(d)} is on`, tone: 'down' });
+        }
     }
 
     function toggleAll() {
@@ -477,7 +497,7 @@ export function DevicesView() {
                                                     </button>
                                                 )}
                                                 <button
-                                                    onClick={() => open(d.id)}
+                                                    onClick={(e) => void open(d, { x: e.clientX, y: e.clientY })}
                                                     disabled={d.maps_count === 0}
                                                     title={d.maps_count === 0 ? 'Not on any map' : 'Show on map'}
                                                     className="rounded-lg p-1 text-white/40 opacity-100 transition-all duration-300 ease-fluid hover:bg-white/5 hover:text-white/80 disabled:cursor-not-allowed disabled:opacity-30 lg:text-white/30 lg:opacity-0 lg:group-hover:opacity-100"
@@ -649,30 +669,7 @@ export function DevicesView() {
                     onClose={() => setDeleting(null)}
                 />
             )}
+            {mapMenu}
         </div>
     );
-}
-
-/** Maps parent-first with their nesting depth, siblings in their saved order, for the map filter. */
-function mapsInTreeOrder(maps: NetworkMap[]): { map: NetworkMap; depth: number }[] {
-    const ids = new Set(maps.map((m) => m.id));
-    const children = new Map<number | null, NetworkMap[]>();
-    for (const m of maps) {
-        // A parent the viewer can't see is treated as the root so the map still shows up.
-        const parent = m.parent_map_id !== null && ids.has(m.parent_map_id) ? m.parent_map_id : null;
-        children.set(parent, [...(children.get(parent) ?? []), m]);
-    }
-    const out: { map: NetworkMap; depth: number }[] = [];
-    const seen = new Set<number>();
-    const walk = (parent: number | null, depth: number) => {
-        const kids = [...(children.get(parent) ?? [])].sort((a, b) => a.position - b.position || a.name.localeCompare(b.name));
-        for (const m of kids) {
-            if (seen.has(m.id)) continue;
-            seen.add(m.id);
-            out.push({ map: m, depth });
-            walk(m.id, depth + 1);
-        }
-    };
-    walk(null, 0);
-    return out;
 }

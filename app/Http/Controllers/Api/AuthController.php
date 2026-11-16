@@ -75,6 +75,8 @@ class AuthController extends Controller
             'email' => $user->email,
             'is_admin' => $user->isAdmin(),
             'restricted' => $user->isRestricted(), // GitHub #28: confined to granted maps
+            // Whether the Outages page is theirs: always, unless restricted and not let in (Settings > Security).
+            'can_view_outages' => ! $user->isRestricted() || app(AuthSettings::class)->restrictedOutages(),
             // Passkey state drives the SPA's post-login gate (enrol / 2FA challenge / straight in).
             'passkey_required' => app(AuthSettings::class)->passkeyRequired(),
             'has_passkey' => $user->passkeys()->exists(),

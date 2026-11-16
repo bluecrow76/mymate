@@ -10,6 +10,7 @@ export interface AuthUser {
     email: string;
     is_admin: boolean;
     restricted?: boolean; // GitHub #28: confined to granted maps
+    can_view_outages?: boolean; // false for a restricted operator unless Settings > Security lets them in
     passkey_required?: boolean; // passkeys mandatory fleet-wide
     has_passkey?: boolean;
     passkey_exempt?: boolean;
@@ -687,6 +688,9 @@ export interface Outage {
     id: number;
     device_id: number;
     device_name: string | null;
+    device_alias: string | null;
+    device_ip: string | null; // the device's management IP now, not at the time of the outage
+    device_maps: { id: number; name: string }[]; // maps it's on that this operator can open
     started_at: string;
     ended_at: string | null;
     duration_s: number | null;

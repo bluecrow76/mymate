@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { ArrowsIn } from '@phosphor-icons/react';
-import { setWallboard, useView, useWallboard } from '../../lib/shellStore';
+import { setView, setWallboard, useView, useWallboard } from '../../lib/shellStore';
 import { TopBar } from './TopBar';
 import { NavRail } from './NavRail';
 import { UpdateNotice } from './UpdateNotice';
@@ -36,8 +36,11 @@ import { ImportView } from '../import/components/ImportView';
 export function AppShell() {
     const view = useView();
     const wallboard = useWallboard();
-    const openOutages = useOutages('open');
     const { data: me } = useCurrentUser();
+    // Restricted operators only get the Outages page when Settings > Security allows it; otherwise
+    // there's no page, no menu item and no count for them.
+    const canViewOutages = me?.can_view_outages !== false;
+    const openOutages = useOutages('open', {}, me !== undefined && canViewOutages);
     const firingAlerts = useFiringAlerts(me !== undefined && me !== null && !me.restricted);
 
     // Keep wallboard in step with the Fullscreen API: leaving fullscreen (Esc, or the
@@ -58,6 +61,11 @@ export function AppShell() {
         };
     }, []);
 
+    // A bookmarked /outages (or the setting switched off meanwhile) lands on the map instead.
+    useEffect(() => {
+        if (view === 'outages' && me && !canViewOutages) setView('map');
+    }, [view, me, canViewOutages]);
+
     const exitWallboard = () => {
         setWallboard(false);
         if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
@@ -73,7 +81,7 @@ export function AppShell() {
             {view === 'discovery' && <DiscoveryView />}
             {view === 'graphs' && <GraphsView />}
             {view === 'tools' && <ToolsView />}
-            {view === 'outages' && <OutagesView />}
+            {view === 'outages' && canViewOutages && <OutagesView />}
             {view === 'alerts' && <AlertsView />}
             {view === 'upgrades' && <UpgradesView />}
             {view === 'backups' && <BackupsView />}

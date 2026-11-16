@@ -58,6 +58,7 @@ import { useCaptureLayoutSnapshot, useUndoLayout, useLayoutSnapshotCount } from 
 import { bundleParallel, computeData, linkUtil, metaOf, type EdgeMeta, type UtilMap } from '../lib/edgeData';
 import { selectDevice, setEdgeStyle, setEdgeAttach, setInspectorOpen, setLayoutKind, setMapGrid, useActiveMapId, useEdgeStyle, useEdgeAttach, useLayoutKind, useMapGrid, useMapGridColor, useMapGridSize, useSelectedDeviceId } from '../../../lib/shellStore';
 import { pushToast } from '../../../lib/toast';
+import { clearMapFocus, useMapFocusRequest } from '../../../lib/mapFocus';
 import { fmtDuration } from '../../device-page/lib/format';
 import type { AlertStateChangedPayload, Device, DeviceRebootedPayload, DeviceStatus, FaceSensorReading, InterfaceUtilUpdatedPayload } from '../../../types';
 
@@ -820,6 +821,17 @@ export function MapCanvas() {
         },
         [setNodes, fitView],
     );
+
+    // "Show on map" from another page (Outages, Devices, a device's page): once this map's cards
+    // are on screen and measured, frame the requested one the same way the search box does.
+    const focusRequest = useMapFocusRequest();
+    useEffect(() => {
+        if (!focusRequest || focusRequest.mapId !== activeMapId) return;
+        const node = nodes.find((n) => n.id === String(focusRequest.deviceId) && n.type === 'device');
+        if (!node?.measured?.width) return; // not drawn yet - the next nodes change retries
+        clearMapFocus(focusRequest.nonce);
+        focusDevice(focusRequest.deviceId);
+    }, [focusRequest, activeMapId, nodes, focusDevice]);
 
     if (isLoading) {
         return <div className="grid h-full place-items-center text-sm text-white/40">Loading map...</div>;

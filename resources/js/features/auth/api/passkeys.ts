@@ -62,6 +62,7 @@ export function useDeletePasskey() {
 
 export interface SecuritySettings {
     passkey_required: boolean;
+    restricted_outages: boolean; // restricted operators may open the Outages page (their devices only)
     affected_operators?: number;
 }
 
@@ -75,8 +76,9 @@ export function useSecuritySettings() {
 export function useUpdateSecuritySettings() {
     const qc = useQueryClient();
     return useMutation({
-        mutationFn: async (passkeyRequired: boolean): Promise<SecuritySettings> =>
-            (await apiClient.put<{ data: SecuritySettings }>('/settings/security', { passkey_required: passkeyRequired })).data.data,
+        // Each toggle saves on its own; the server leaves the other flag as it was.
+        mutationFn: async (patch: Partial<Pick<SecuritySettings, 'passkey_required' | 'restricted_outages'>>): Promise<SecuritySettings> =>
+            (await apiClient.put<{ data: SecuritySettings }>('/settings/security', patch)).data.data,
         onSuccess: () => {
             qc.invalidateQueries({ queryKey: ['security-settings'] });
             qc.invalidateQueries({ queryKey: authUserKey });
