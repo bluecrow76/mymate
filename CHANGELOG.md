@@ -13,6 +13,20 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- The Outages page shows each device's IP address, and can be limited to the devices on one map,
+  with its sub-maps included unless you untick Include sub-maps. The filters are remembered.
+- Settings > Security can let restricted operators open the Outages page, showing only outages
+  for the devices on their maps. It's off by default, as before, and the Outages menu item and
+  count are now hidden from them while it's off (the page used to be listed but fail to load).
+
+### Fixed
+- Clicking an outage, or a device's Show on map arrow on the Devices page, now opens a map the
+  device is actually on and pans to its card. The map already open is kept when the device is on it,
+  a device on several maps asks which, and one on no map opens its device page. The device page's
+  Show on map button pans to the card too.
+- The Outages page shows device aliases, like the rest of the app.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added

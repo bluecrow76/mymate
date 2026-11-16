@@ -2,6 +2,7 @@ import { MapTrifold, GlobeHemisphereWest, SquaresFour, ListDashes, MagnifyingGla
 import { useView, setView, useNavOpen, setNavOpen, useNavCollapsed, setNavCollapsed, type View } from '../../lib/shellStore';
 import { useUpdateCheck } from '../settings/api/updateCheck';
 import { MapLegend } from './MapLegend';
+import { useCurrentUser } from '../auth/api/auth';
 
 const ITEMS: { id: View; label: string; icon: Icon }[] = [
     { id: 'map', label: 'Map', icon: MapTrifold },
@@ -29,6 +30,9 @@ export function viewLabel(view: View): string {
  *  in lock-step. Tapping an item navigates and closes the drawer (a no-op at lg+). */
 function NavContent({ outageCount, alertCount, collapsible = false }: { outageCount: number; alertCount: number; collapsible?: boolean }) {
     const view = useView();
+    const { data: me } = useCurrentUser();
+    // Outages is hidden from a restricted operator unless Settings > Security lets them in.
+    const items = ITEMS.filter((it) => it.id !== 'outages' || me?.can_view_outages !== false);
     // This install's version, from the update-check endpoint (VERSION file / MYMATE_VERSION).
     const { data: update } = useUpdateCheck();
     const version = update?.current ? (update.current === 'dev' ? 'dev' : `v${update.current}`) : '';
@@ -51,7 +55,7 @@ function NavContent({ outageCount, alertCount, collapsible = false }: { outageCo
             </div>
 
             <ul className="space-y-0.5">
-                {ITEMS.map((it) => {
+                {items.map((it) => {
                     const active = view === it.id || (view === 'device' && it.id === 'devices');
                     const Icon = it.icon;
                     return (

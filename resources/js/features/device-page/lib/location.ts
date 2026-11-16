@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import { NAVIGATE_EVENT, navigateTo, selectDevice, setActiveMap, setView } from '../../../lib/shellStore';
+import { requestMapFocus } from '../../../lib/mapFocus';
 
 // The device page keeps its whole state in the URL (which device, port, tab and graph range),
 // so a copied link reproduces the view. This is the small bit of routing it needs on top of
@@ -60,9 +61,12 @@ export function setQuery(patch: Record<string, string | null>, opts: { push?: bo
     navigateTo(url.pathname + url.search, { replace: !opts.push });
 }
 
-/** Jump to the map with this device selected, on a map it's actually placed on. */
+/** Jump to the map with this device selected, on a map it's actually placed on, and frame its card. */
 export function showOnMap(deviceId: number, mapId: number | null): void {
-    if (mapId !== null) setActiveMap(mapId);
+    if (mapId !== null) {
+        setActiveMap(mapId);
+        requestMapFocus(deviceId, mapId);
+    }
     selectDevice(deviceId);
     setView('map');
 }
