@@ -28,6 +28,7 @@ export type UtilEdgeData = {
     mediaType?: LinkMediaType | null; // physical medium - dash pattern only (load keeps the colour)
     hideLabel?: boolean; // drop the centred load/capacity label (geo map "Bandwidth" toggle, GitHub #22)
     onRemove?: () => void; // request deletion of this link (hover the label -> ✕)
+    onHover?: (at: { x: number; y: number } | null) => void; // pointer over the label (screen px) - the map's link tooltip
     emphasized?: boolean; // touches the selected device - bring it forward
     dimmed?: boolean; // a device is selected but this link isn't its - push it back
     parallelIndex?: number; // this link's lane among links between the same two cards (GitHub #9)
@@ -211,6 +212,9 @@ export function UtilEdge({
                         opacity: dimmed ? 0.3 : 1,
                         transition: 'opacity 400ms var(--ease-fluid)',
                     }}
+                    onMouseEnter={d.onHover ? (e) => d.onHover?.({ x: e.clientX, y: e.clientY }) : undefined}
+                    onMouseMove={d.onHover ? (e) => d.onHover?.({ x: e.clientX, y: e.clientY }) : undefined}
+                    onMouseLeave={d.onHover ? () => d.onHover?.(null) : undefined}
                     className="mm-edge-label group pointer-events-auto absolute flex items-center gap-1 rounded-full border bg-surface/90 px-2 py-0.5 text-[10px] font-medium tabular-nums text-white/85 shadow-[0_4px_14px_-4px_rgba(0,0,0,0.85)] ring-1 ring-white/10"
                 >
                     {d.down ? (

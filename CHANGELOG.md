@@ -14,6 +14,9 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- Hovering a link between two devices on the map (the line or its label) shows the two devices
+  and the port the link uses on each end, with each port's state, speed, description, optical
+  levels and OSPF cost, plus the link's medium, capacity and live load each way.
 - Graphs can look back in time: arrows next to the range step the window back and forward by its
   own length, so a 6h graph can show any six hours still kept, not only the latest (#59).
 - The Devices tab sorts by RouterOS version (newest or oldest first, 7.9 before 7.10) and filters
