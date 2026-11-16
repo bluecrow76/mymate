@@ -14,6 +14,11 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- Each discovery scan range can name the map its devices go on and where on it: down the right-
+  or left-hand column, or along the bottom or top row of the cards already there. Clicking Add
+  puts the device on that map only, in the next free spot, so a batch no longer piles up on one
+  spot. With overlapping ranges the most specific one decides; a range with no map uses the
+  default map, as before. The review queue shows where each host will go.
 - Graphs can look back in time: arrows next to the range step the window back and forward by its
   own length, so a 6h graph can show any six hours still kept, not only the latest (#59).
 - The Devices tab sorts by RouterOS version (newest or oldest first, 7.9 before 7.10) and filters

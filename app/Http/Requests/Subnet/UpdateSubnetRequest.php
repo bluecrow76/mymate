@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Subnet;
 
 use App\Services\Discovery\Scanner;
+use App\Support\MapPlacement;
 use Closure;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -26,6 +27,9 @@ class UpdateSubnetRequest extends FormRequest
             'enabled' => ['sometimes', 'boolean'],
             'scan_interval_s' => ['sometimes', 'integer', 'min:5', 'max:86400'],
             'agent_id' => ['nullable', 'integer', 'exists:agents,id'],
+            // Where devices added from this subnet go: a map (null = the default map) and an edge of it.
+            'map_id' => ['nullable', 'integer', 'exists:maps,id'],
+            'placement' => ['sometimes', 'string', Rule::in(MapPlacement::EDGES)],
         ];
     }
 

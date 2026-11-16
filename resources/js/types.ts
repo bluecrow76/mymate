@@ -837,12 +837,18 @@ export interface Subnet {
     scan_swept: number | null;
     scan_found: number | null;
     agent_id: number | null; // scanned by a remote agent when set, else centrally
+    map_id: number | null; // devices added from this range go on this map; null = the default map
+    placement: SubnetPlacement; // which edge of that map they're lined up along
 }
+
+/** Where on its map a device added from discovery goes (App\Support\MapPlacement). */
+export type SubnetPlacement = 'right' | 'left' | 'bottom' | 'top';
 
 export interface DiscoveryCandidate {
     id: number;
     ip: string;
     agent: { id: number; name: string | null } | null; // agent whose sweep found it; null = central
+    target_map?: { id: number; name: string } | null; // where Add puts it (its subnet's map, else the default)
     status: DiscoveryStatus;
     sysname: string | null;
     detected_method: PollMethod | null;

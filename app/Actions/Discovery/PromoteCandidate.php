@@ -8,7 +8,11 @@ use App\Enums\PollMethod;
 use App\Jobs\DiscoverInterfacesJob;
 use App\Jobs\PollInterfacesJob;
 use App\Models\Device;
+use App\Models\DeviceMapPosition;
 use App\Models\DiscoveryCandidate;
+use App\Models\Map;
+use App\Models\Subnet;
+use App\Support\MapPlacement;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
@@ -28,7 +32,7 @@ use Illuminate\Support\Facades\DB;
  */
 class PromoteCandidate
 {
-    public function __construct(private CreateDevice $createDevice) {}
+    public function __construct(private CreateDevice $createDevice, private MapPlacement $placement) {}
 
     public function __invoke(DiscoveryCandidate $candidate): Device
     {
@@ -61,13 +65,19 @@ class PromoteCandidate
                     'poll_method' => $candidate->detected_method ?? PollMethod::None,
                     'credential_id' => $candidate->matched_credential_id,
                     'ssh_credential_id' => $candidate->matched_ssh_credential_id,
+                    'place_on_map' => false, // placed below, on its subnet's map
                 ];
 
                 try {
                     // A nested DB::transaction() becomes a SAVEPOINT - a unique-violation
                     // here only rolls back the insert attempt, not the outer transaction's
                     // candidate-status update below.
-                    $device = DB::transaction(fn (): Device => ($this->createDevice)($attributes));
+                    $device = DB::transaction(function () use ($attributes, $candidate): Device {
+                        $device = ($this->createDevice)($attributes);
+                        $this->place($device, $candidate);
+
+                        return $device;
+                    });
                 } catch (QueryException $e) {
                     // getCode() is a string SQLSTATE ('23505') from a real PDO/Postgres
                     // error, but PHP's base Exception coerces a numeric code to int -
@@ -90,6 +100,30 @@ class PromoteCandidate
         PollInterfacesJob::dispatch($device->id);
 
         return $device;
+    }
+
+    /**
+     * Put a newly added device on its subnet's map, at that subnet's chosen edge. The subnet is the
+     * most specific one (same scanner - this server or the same agent) that contains the device's
+     * IP, so a /24 inside a scanned /16 gets the /24's map. No subnet, or one with no map, means the
+     * default map, as before. The map row is locked so two Adds at once don't take the same slot.
+     */
+    private function place(Device $device, DiscoveryCandidate $candidate): void
+    {
+        $subnet = Subnet::bestFor($candidate->ip, $candidate->agent_id);
+
+        $mapId = $subnet?->map_id ?? Map::default()?->id;
+        if ($mapId === null) {
+            return; // no maps at all
+        }
+
+        Map::withoutGlobalScopes()->whereKey($mapId)->lockForUpdate()->first();
+        $slot = $this->placement->nextSlot($mapId, $subnet?->placement ?? MapPlacement::DEFAULT);
+
+        DeviceMapPosition::firstOrCreate(
+            ['device_id' => $device->id, 'map_id' => $mapId],
+            ['x' => $slot['x'], 'y' => $slot['y']],
+        );
     }
 
     /**

@@ -18,6 +18,8 @@ class SubnetResource extends JsonResource
             'enabled' => $this->enabled,
             'scan_interval_s' => $this->scan_interval_s,
             'agent_id' => $this->agent_id,
+            'map_id' => $this->map_id, // devices added from here go on this map (null = the default map)
+            'placement' => $this->placement,
             'last_scanned_at' => $this->last_scanned_at,
             // A sweep is running right now. Guarded by age so a worker killed mid-sweep (which
             // couldn't clear the flag) doesn't leave it "scanning" forever - well past any real
