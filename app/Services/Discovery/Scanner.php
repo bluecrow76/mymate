@@ -143,6 +143,23 @@ class Scanner
     }
 
     /**
+     * The CIDR's prefix length when it contains $ip (so the caller can prefer the most specific of
+     * several matching subnets), else null. IPv4 only, like every subnet.
+     */
+    public static function prefixContaining(string $cidr, string $ip): ?int
+    {
+        $parsed = self::parse($cidr);
+        $long = ip2long($ip);
+        if ($parsed === null || $long === false) {
+            return null;
+        }
+        [$network, $prefix] = $parsed;
+        $mask = $prefix === 0 ? 0 : ((-1 << (32 - $prefix)) & 0xFFFFFFFF);
+
+        return ($long & $mask) === $network ? $prefix : null;
+    }
+
+    /**
      * @return array{0:int,1:int}|null [networkLong, prefix] for a valid IPv4 CIDR, else null.
      */
     private static function parse(string $cidr): ?array

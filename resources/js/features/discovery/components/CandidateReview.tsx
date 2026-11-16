@@ -130,6 +130,11 @@ export function CandidateReview({ open, scanning }: { open: boolean; scanning?: 
                                 {c.source === 'cmr' && [c.board, c.mac].filter(Boolean).length > 0 ? ` - ${[c.board, c.mac].filter(Boolean).join(' ')}` : ''}
                                 {c.agent ? ` - via agent ${c.agent.name ?? `#${c.agent.id}`}` : ''} - seen {relativeTime(c.last_seen)}
                             </span>
+                            {c.status === 'new' && c.target_map && (
+                                <span className="block truncate text-[11px] text-indigo-300/70" title="Add places it on this map (set per scan range)">
+                                    → {c.target_map.name}
+                                </span>
+                            )}
                         </span>
 
                         {c.status === 'new' && isAdmin ? (

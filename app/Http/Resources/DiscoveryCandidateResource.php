@@ -4,6 +4,8 @@ namespace App\Http\Resources;
 
 use App\Models\Credential;
 use App\Models\DiscoveryCandidate;
+use App\Models\Map;
+use App\Models\Subnet;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Collection;
@@ -30,6 +32,8 @@ class DiscoveryCandidateResource extends JsonResource
             'mac' => $this->mac,
             'board' => $this->board,
             'os' => $this->os,
+            // Where Add will put it: its subnet's map, else the default map (null when there are no maps).
+            'target_map' => $this->targetMap($request),
             'first_seen' => $this->first_seen,
             'last_seen' => $this->last_seen,
         ];
@@ -56,6 +60,24 @@ class DiscoveryCandidateResource extends JsonResource
             ->map(fn (Credential $c): array => ['id' => $c->id, 'name' => $c->name, 'type' => $c->type])
             ->values()
             ->all();
+    }
+
+    /** @return array{id:int, name:string}|null */
+    private function targetMap(Request $request): ?array
+    {
+        if ($this->isCmr()) {
+            return null; // CMR pairing keeps its own placement
+        }
+        // Subnets and the default map, loaded once per request (kept on the request, not a static,
+        // so a long-lived worker never serves a stale copy).
+        $subnets = $request->attributes->get('mm.subnets') ?? tap(Subnet::with('map:id,name')->get(), fn ($s) => $request->attributes->set('mm.subnets', $s));
+        if (! $request->attributes->has('mm.default_map')) {
+            $request->attributes->set('mm.default_map', Map::default());
+        }
+
+        $map = Subnet::bestFor($this->ip, $this->agent_id, $subnets)?->map ?? $request->attributes->get('mm.default_map');
+
+        return $map ? ['id' => $map->id, 'name' => $map->name] : null;
     }
 
     /** Credentials keyed by id, loaded once per request (the pool is small). */

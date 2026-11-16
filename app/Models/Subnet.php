@@ -2,10 +2,12 @@
 
 namespace App\Models;
 
+use App\Services\Discovery\Scanner;
 use Database\Factories\SubnetFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection;
 
 /**
  * An operator-authorized IP range the discovery worker sweeps for new devices
@@ -18,7 +20,7 @@ class Subnet extends Model
     /** @use HasFactory<SubnetFactory> */
     use HasFactory;
 
-    protected $fillable = ['cidr', 'label', 'enabled', 'scan_interval_s', 'last_scanned_at', 'scanning_since', 'scan_total', 'scan_swept', 'scan_found', 'agent_id'];
+    protected $fillable = ['cidr', 'label', 'enabled', 'scan_interval_s', 'last_scanned_at', 'scanning_since', 'scan_total', 'scan_swept', 'scan_found', 'agent_id', 'map_id', 'placement'];
 
     protected $casts = [
         'enabled' => 'boolean',
@@ -31,7 +33,33 @@ class Subnet extends Model
     protected $attributes = [
         'enabled' => true,
         'scan_interval_s' => 3600,
+        'placement' => 'right',
     ];
+
+    /**
+     * The subnet whose settings decide where a device added for $ip goes: the most specific subnet,
+     * scanned from the same place (this server, or the same agent), that contains it. Between two
+     * equally specific ones, one with a map wins. Null when no subnet contains it.
+     *
+     * @param  Collection<int, Subnet>|null  $subnets  all subnets, when the caller already has them
+     */
+    public static function bestFor(string $ip, ?int $agentId, ?Collection $subnets = null): ?self
+    {
+        $subnets ??= self::query()->get();
+
+        return $subnets
+            ->filter(fn (Subnet $s) => $s->agent_id === $agentId)
+            ->map(fn (Subnet $s) => [$s, Scanner::prefixContaining($s->cidr, $ip)])
+            ->filter(fn (array $pair) => $pair[1] !== null)
+            ->sortByDesc(fn (array $pair) => $pair[1] * 2 + ($pair[0]->map_id !== null ? 1 : 0))
+            ->first()[0] ?? null;
+    }
+
+    /** The map devices added from this subnet's discovery results go on; null = the default map. */
+    public function map(): BelongsTo
+    {
+        return $this->belongsTo(Map::class);
+    }
 
     /** The remote agent that scans this subnet, or null when scanned centrally. */
     public function agent(): BelongsTo

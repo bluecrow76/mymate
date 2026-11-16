@@ -13,6 +13,13 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- Each discovery scan range can name the map its devices go on and where on it: down the right-
+  or left-hand column, or along the bottom or top row of the cards already there. Clicking Add
+  puts the device on that map only, in the next free spot, so a batch no longer piles up on one
+  spot. With overlapping ranges the most specific one decides; a range with no map uses the
+  default map, as before. The review queue shows where each host will go.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added
