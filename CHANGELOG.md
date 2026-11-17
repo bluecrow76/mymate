@@ -35,6 +35,10 @@ of commit subjects.
   port, and can include entries the latest read no longer saw. Restricted operators don't get it,
   since it names devices beyond their maps. `php artisan mymate:neighbours:show <device>` prints
   the same in a terminal.
+- `php artisan mymate:neighbours:reset <device> [<device> ...]` clears everything collected about
+  a device's neighbours, history included, for equipment that has moved - a router set up at the
+  office and then sent to a jobsite no longer shows the office's neighbours. It shows what will be
+  removed and asks first (`--force` skips that), and the device is read again within a minute.
 - Graphs can look back in time: arrows next to the range step the window back and forward by its
   own length, so a 6h graph can show any six hours still kept, not only the latest (#59).
 - The Devices tab sorts by RouterOS version (newest or oldest first, 7.9 before 7.10) and filters
