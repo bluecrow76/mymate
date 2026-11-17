@@ -278,6 +278,7 @@ export interface EngineSetting {
     label: string;
     min: number;
     max: number;
+    type?: 'int' | 'bool'; // 'bool' = a 0/1 value shown as a checkbox
 }
 
 // A credential for the Settings screen - secrets are never returned (CredentialResource).

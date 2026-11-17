@@ -76,14 +76,23 @@ function EngineSettings() {
                 {settings?.map((s) => (
                     <label key={s.key} className="flex items-center justify-between gap-4">
                         <span className="min-w-0 flex-1 text-sm text-white/70">{s.label}</span>
-                        <input
-                            type="number"
-                            min={s.min}
-                            max={s.max}
-                            value={draft[s.key] ?? s.value}
-                            onChange={(e) => setDraft((d) => ({ ...d, [s.key]: Number(e.target.value) }))}
-                            className={numField}
-                        />
+                        {s.type === 'bool' ? (
+                            <input
+                                type="checkbox"
+                                checked={(draft[s.key] ?? s.value) === 1}
+                                onChange={(e) => setDraft((d) => ({ ...d, [s.key]: e.target.checked ? 1 : 0 }))}
+                                className="h-4 w-4 rounded border-white/20 bg-white/[0.05] text-emerald-500 focus:ring-emerald-400/60"
+                            />
+                        ) : (
+                            <input
+                                type="number"
+                                min={s.min}
+                                max={s.max}
+                                value={draft[s.key] ?? s.value}
+                                onChange={(e) => setDraft((d) => ({ ...d, [s.key]: Number(e.target.value) }))}
+                                className={numField}
+                            />
+                        )}
                     </label>
                 ))}
             </div>

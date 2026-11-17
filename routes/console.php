@@ -47,6 +47,10 @@ Schedule::command('mymate:command-runs:reconcile')->everyMinute()->name('command
 // enforce a bounded retention window for captured output and error text.
 Schedule::command('mymate:command-runs:prune-output')->daily()->name('command-output-prune')->withoutOverlapping();
 
+// Neighbour sightings (LLDP/MNDP/FDB/ARP) are refreshed every discovery cycle; anything not seen
+// within the retention window (Settings > Engine) is history that has gone quiet - drop it.
+Schedule::command('mymate:neighbours:prune')->daily()->name('neighbour-sightings-prune')->withoutOverlapping();
+
 // Reap silent agents. A connected agent heartbeats via the hub keepalive every ~30s; if an
 // "online" one hasn't been heard from in 90s its socket is dead (e.g. a blackholed link that
 // never sent a TCP close, which the raised /agent proxy timeout would otherwise mask for up to

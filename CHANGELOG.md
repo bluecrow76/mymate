@@ -13,6 +13,16 @@ of commit subjects.
 
 ## [Unreleased]
 
+### Added
+- My Mate now records what each SNMP-polled device can see of its neighbours: LLDP and MikroTik
+  neighbours, which MAC addresses sit behind which port, the ARP table, and each device's own
+  interface MACs and IP addresses. Each entry keeps when it was first and last seen, so a cable
+  moved to another port is kept as history, not overwritten. Nothing is shown yet; this builds up
+  the data that suggested links and topology change alerts will use. It runs hourly per device on
+  its own background queue, so it never slows polling, and Settings > Engine can turn it off or
+  change the interval and how long history is kept (30 days by default). Restart Horizon after
+  upgrading so the new queue gets a worker.
+
 ## [2.2.0] - 2026-11-22
 
 ### Added
