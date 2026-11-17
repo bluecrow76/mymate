@@ -14,6 +14,10 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- Each map has its own address, like /maps/12-core-network, so a map can be bookmarked or its link
+  shared. The address follows the map you're on, and Back and Forward step between the maps you've
+  opened. Only the number matters, so links keep working after a map is renamed. A link to a map
+  that's been deleted, or that you can't see, opens the default map and says so.
 - Graphs can look back in time: arrows next to the range step the window back and forward by its
   own length, so a 6h graph can show any six hours still kept, not only the latest (#59).
 - The Devices tab sorts by RouterOS version (newest or oldest first, 7.9 before 7.10) and filters
@@ -41,6 +45,8 @@ of commit subjects.
   own ~10ms), so a fleet of a thousand-odd devices finishes well inside the process timeout (#61).
 
 ### Fixed
+- A public wallboard keeps its /wall/... address. The page used to change it to / as it loaded, so
+  a screen that reloaded showed the login page instead of the wallboard.
 - Docker on any port other than 443 (the default 9443 included) showed a blank page: Debian's
   latest nginx passes the Host to PHP without its port, so the asset URLs lost it and the browser
   blocked them. Every shipped nginx config now passes the Host the browser used (#62).
