@@ -23,8 +23,11 @@ class RestrictedAccess
         'maps', 'links', 'interfaces', 'devices', 'probes',
     ];
 
-    /** Carve-outs inside an allowed prefix that stay off-limits (config backups carry secrets). */
-    private const DENIED = ['devices.backups'];
+    /**
+     * Carve-outs inside an allowed prefix that stay off-limits: config backups carry secrets, and
+     * neighbour data names other devices' IPs, MACs and hostnames beyond the granted maps.
+     */
+    private const DENIED = ['devices.backups', 'devices.neighbours'];
 
     public function handle(Request $request, Closure $next): Response
     {

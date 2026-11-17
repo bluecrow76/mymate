@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\DeviceBackupController;
 use App\Http\Controllers\Api\DeviceController;
 use App\Http\Controllers\Api\DeviceHealthController;
 use App\Http\Controllers\Api\DeviceHistoryController;
+use App\Http\Controllers\Api\DeviceNeighbourController;
 use App\Http\Controllers\Api\DeviceIconController;
 use App\Http\Controllers\Api\DiscoverDeviceController;
 use App\Http\Controllers\Api\DiscoveryCandidateController;
@@ -330,6 +331,9 @@ Route::middleware(['auth:sanctum', EnsurePasskeyVerified::class, RestrictWritesT
     Route::get('devices/{device}/billing', [DeviceHistoryController::class, 'billing'])->name('devices.billing');
     Route::get('devices/{device}/events', [DeviceHistoryController::class, 'events'])->name('devices.events');
     Route::get('devices/{device}/summary', [DeviceHistoryController::class, 'summary'])->name('devices.summary');
+    // Collected neighbour data (LLDP/MNDP, MACs per port, ARP) - the Neighbours tab. Not for
+    // restricted operators (RestrictedAccess): it names devices beyond their maps.
+    Route::get('devices/{device}/neighbours', [DeviceNeighbourController::class, 'show'])->name('devices.neighbours');
 
     // Topology links (interface-to-interface). Update re-binds either end.
     Route::apiResource('links', LinkController::class)->only(['index', 'store', 'update', 'destroy']);
