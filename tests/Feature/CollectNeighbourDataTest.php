@@ -11,7 +11,9 @@ use App\Models\Credential;
 use App\Models\Device;
 use App\Models\NetworkInterface;
 use App\Models\User;
+use App\Providers\AppServiceProvider;
 use App\Services\Neighbours\SnmpNeighbourReader;
+use App\Services\Snmp\PhpSnmpClient;
 use App\Services\Snmp\SnmpClient;
 use App\Services\Snmp\SnmpCredential;
 use App\Support\Settings;
@@ -86,6 +88,8 @@ class CollectNeighbourDataTest extends TestCase
                 // local ifIndex 18 <-> sw-office "Port 49"; capabilities as hex text; '+' arrives as '_'
                 '1.4.0.18.2' => '4', '1.5.0.18.2' => '74:FA:29:1C:0C:1C', '1.6.0.18.2' => '7', '1.7.0.18.2' => 'Port 49',
                 '1.8.0.18.2' => 'SFP_ 1', '1.9.0.18.2' => 'sw-office', '1.12.0.18.2' => '28',
+                // a Windows PC on the VLAN: no system name, its hostname as a local (7) chassis id
+                '1.4.0.27.3' => '7', '1.5.0.27.3' => 'KENTS-PRO16', '1.6.0.27.3' => '3', '1.7.0.27.3' => 'D4 A2 CD 16 FB 0A ',
             ],
             self::LLDP_MAN => [
                 '1.3.0.19.1.1.4.192.0.2.71' => '3',
@@ -96,8 +100,13 @@ class CollectNeighbourDataTest extends TestCase
                 // the same VPN neighbour twice (no MAC over a tunnel)
                 '1.2.2' => '10.255.0.1', '1.4.2' => '7.25.1', '1.5.2' => 'MikroTik', '1.6.2' => 'remote-vpn', '1.8.2' => '30',
                 '1.2.3' => '10.255.0.1', '1.4.3' => '7.25.1', '1.5.3' => 'MikroTik', '1.6.3' => 'remote-vpn', '1.8.3' => '30',
-                // a row cut short mid-walk: nothing to identify it by
+                // rows cut short mid-walk: nothing to identify it by; only an IP (no identity or MAC);
+                // an identity but no local interface - each would be a nameless duplicate
                 '1.8.4' => '30',
+                '1.2.5' => '10.255.0.1', '1.8.5' => '30',
+                '1.2.6' => '10.255.0.1', '1.6.6' => 'remote-vpn',
+                // a neighbour that announced no address: RouterOS says 0.0.0.0
+                '1.2.7' => '0.0.0.0', '1.3.7' => 'D4 A2 CD 16 FB 0A ', '1.8.7' => '27',
             ],
             // bridge ports are not ifIndexes on RouterOS: 13 -> 19, 14 -> 18
             self::BASE_PORT_IF_INDEX => [13 => '19', 14 => '18'],
@@ -149,7 +158,7 @@ class CollectNeighbourDataTest extends TestCase
 
         // LLDP: remote port, management IP from the man-addr table, capabilities from both BITS forms.
         $lldp = DB::table('neighbour_sightings')->where('device_id', $device->id)->where('protocol', 'lldp')->orderBy('local_if_index')->get();
-        $this->assertCount(2, $lldp);
+        $this->assertCount(3, $lldp);
         $south = $lldp->firstWhere('local_if_index', 19);
         $this->assertSame($this->ifaceId($device, 19), (int) $south->interface_id);
         $this->assertSame('8c:ed:e1:4c:38:8f', $south->remote_mac);
@@ -162,15 +171,22 @@ class CollectNeighbourDataTest extends TestCase
         $this->assertSame('Port 49', $office->remote_port_id);
         $this->assertSame('192.0.2.76', $office->remote_ip);
         $this->assertSame(['bridge', 'router'], json_decode($office->remote_capabilities, true));
+        // No system name: the locally assigned chassis id stands in for it.
+        $pc = $lldp->firstWhere('local_if_index', 27);
+        $this->assertSame('KENTS-PRO16', $pc->remote_name);
+        $this->assertSame('d4:a2:cd:16:fb:0a', $pc->remote_port_id);
 
-        // MNDP: the VPN repeat collapses to one row, the half-read row is skipped.
-        $mndp = DB::table('neighbour_sightings')->where('device_id', $device->id)->where('protocol', 'mndp')->orderBy('local_if_index')->get();
-        $this->assertCount(2, $mndp);
-        $this->assertSame('8c:ed:e1:4c:38:90', $mndp[0]->remote_mac);
-        $this->assertSame('UBNT', $mndp[0]->remote_platform);
-        $this->assertNull($mndp[0]->remote_port_id);
-        $this->assertSame('remote-vpn', $mndp[1]->remote_name);
-        $this->assertNull($mndp[1]->interface_id); // ifIndex 30 isn't a known interface
+        // MNDP: the VPN repeat collapses to one row, the half-read rows are skipped.
+        $mndp = DB::table('neighbour_sightings')->where('device_id', $device->id)->where('protocol', 'mndp')->get()->keyBy('local_if_index');
+        $this->assertCount(3, $mndp);
+        $this->assertSame('8c:ed:e1:4c:38:90', $mndp[19]->remote_mac);
+        $this->assertSame('UBNT', $mndp[19]->remote_platform);
+        $this->assertNull($mndp[19]->remote_port_id);
+        $this->assertSame('remote-vpn', $mndp[30]->remote_name);
+        $this->assertNull($mndp[30]->interface_id); // ifIndex 30 isn't a known interface
+        $this->assertSame(1, DB::table('neighbour_sightings')->where('protocol', 'mndp')->where('remote_ip', '10.255.0.1')->count());
+        $this->assertNull($mndp[27]->remote_ip); // 0.0.0.0 is no address
+        $this->assertSame('d4:a2:cd:16:fb:0a', $mndp[27]->remote_mac);
 
         // FDB: bridge ports translated to ifIndexes; the port-0 entry skipped.
         $fdb = DB::table('fdb_sightings')->where('device_id', $device->id)->orderBy('port')->get();
@@ -306,6 +322,176 @@ class CollectNeighbourDataTest extends TestCase
         $this->assertStringContainsString('no response', (string) $device->neighbours_error);
         $this->assertStringNotContainsString('public', (string) $device->neighbours_error); // never the community
         $this->assertSame(0, DB::table('neighbour_sightings')->count());
+        $this->assertStringStartsWith("Couldn't read the device", (string) $device->neighbours_error);
+        $this->assertSame(1, $device->neighbours_failures);
+        // Only the first walk was tried: an unreachable device costs one timeout, not one per table.
+        $this->assertCount(1, $this->snmp->walkCalls);
+    }
+
+    public function test_a_table_that_times_out_is_left_out_and_the_rest_are_stored(): void
+    {
+        // A CCR2004 building its bridge table on demand: the FDB walk times out, the rest answer.
+        $device = $this->router();
+        $this->snmp->throwOn[self::FDB_PORT] = 'No response from 192.0.2.1';
+
+        app(CollectNeighbourData::class)($device);
+
+        $device->refresh();
+        $this->assertSame(0, DB::table('fdb_sightings')->count());
+        $this->assertSame(6, DB::table('neighbour_sightings')->where('device_id', $device->id)->count());
+        $this->assertSame(2, DB::table('arp_sightings')->where('device_id', $device->id)->count());
+        $this->assertSame(2, DB::table('device_addresses')->where('device_id', $device->id)->count());
+        $this->assertSame("Some tables couldn't be read: fdb (No response from 192.0.2.1)", $device->neighbours_error);
+        $this->assertSame(1, $device->neighbours_failures);
+
+        // The next read is whole again: the error clears and the failure count resets.
+        $this->snmp->throwOn = [];
+        app(CollectNeighbourData::class)($device);
+        $device->refresh();
+        $this->assertNull($device->neighbours_error);
+        $this->assertSame(0, $device->neighbours_failures);
+        $this->assertSame(2, DB::table('fdb_sightings')->count());
+    }
+
+    public function test_a_table_is_all_or_nothing(): void
+    {
+        // The bridge-port map failing would leave RouterOS bridge ports read as ifIndexes, and
+        // the man-addr table failing would blank the neighbours' IPs - so neither table is kept.
+        $device = $this->router();
+        app(CollectNeighbourData::class)($device);
+        $this->snmp->throwOn = [self::BASE_PORT_IF_INDEX => 'No response from 192.0.2.1', self::LLDP_MAN => 'Timeout'];
+        $this->travel(10)->minutes();
+
+        app(CollectNeighbourData::class)($device);
+
+        $this->assertSame(2, DB::table('fdb_sightings')->count()); // no rows with untranslated ports
+        $this->assertSame(['19', '18'], DB::table('fdb_sightings')->orderBy('port')->pluck('if_index')->map(fn ($v) => (string) $v)->all());
+        $this->assertSame('192.0.2.71', DB::table('neighbour_sightings')->where('protocol', 'lldp')->where('local_if_index', 19)->value('remote_ip'));
+        $this->assertStringContainsString('lldp (Timeout)', (string) $device->fresh()->neighbours_error);
+        $this->assertStringContainsString('fdb (No response', (string) $device->fresh()->neighbours_error);
+    }
+
+    public function test_after_two_timeouts_the_remaining_tables_are_skipped(): void
+    {
+        $device = $this->router();
+        $this->snmp->throwOn = [self::LLDP_REM => 'No response from 192.0.2.1', self::MNDP => 'No response from 192.0.2.1'];
+
+        app(CollectNeighbourData::class)($device);
+
+        $this->assertNotContains(self::FDB_PORT, $this->snmp->walkCalls);
+        $this->assertNotContains(self::ARP_MAC, $this->snmp->walkCalls);
+        $this->assertSame(2, DB::table('device_addresses')->count()); // read before it went quiet
+        $this->assertStringContainsString('arp (skipped - the device stopped answering)', (string) $device->fresh()->neighbours_error);
+    }
+
+    public function test_a_gen_error_means_the_table_is_not_supported_not_a_failure(): void
+    {
+        // APC network cards answer the LLDP table with genError.
+        $device = $this->router();
+        $this->snmp->throwOn[self::LLDP_REM] = "Error in packet at '.1.0.8802.1.1.2.1.4.1': (genError) A general failure occured";
+
+        app(CollectNeighbourData::class)($device);
+
+        $device->refresh();
+        $this->assertNull($device->neighbours_error);
+        $this->assertSame(0, $device->neighbours_failures);
+        $this->assertSame(0, DB::table('neighbour_sightings')->where('protocol', 'lldp')->count());
+        $this->assertSame(3, DB::table('neighbour_sightings')->where('protocol', 'mndp')->count());
+        $this->assertSame(2, DB::table('fdb_sightings')->count());
+    }
+
+    public function test_a_switch_without_dot1d_fdb_falls_back_to_q_bridge(): void
+    {
+        // US-24-Pro / ES-16-XG: dot1dTpFdb is empty, dot1qTpFdbPort (fdbId.mac) is full.
+        $device = Device::factory()->create([
+            'poll_method' => PollMethod::Snmp,
+            'credential_id' => Credential::factory()->create(['type' => 'snmp', 'snmp_community' => 'public'])->id,
+            'vendor' => 'Linux',
+        ]);
+        NetworkInterface::factory()->create(['device_id' => $device->id, 'if_index' => 25, 'name' => 'Slot: 0 Port: 25']);
+        $this->snmp->walks = [
+            self::IF_PHYS => [25 => 'F4 92 BF 00 00 19 '],
+            self::BASE_PORT_IF_INDEX => [25 => '25'],
+            '.1.3.6.1.2.1.17.7.1.2.2.1.2' => [
+                '1.4.244.28.237.84.138' => '25',
+                '20.4.244.28.237.84.138' => '25', // the same MAC on VLAN 20
+                '20.1.2.3' => '25',                // malformed index: skipped
+            ],
+        ];
+
+        app(CollectNeighbourData::class)($device);
+
+        $fdb = DB::table('fdb_sightings')->where('device_id', $device->id)->orderBy('vlan')->get();
+        $this->assertSame([1, 20], $fdb->pluck('vlan')->map(fn ($v) => (int) $v)->all());
+        $this->assertSame('04:f4:1c:ed:54:8a', $fdb[0]->mac);
+        $this->assertSame($this->ifaceId($device, 25), (int) $fdb[0]->interface_id);
+    }
+
+    public function test_the_reader_gets_a_patient_snmp_client_but_fakes_are_left_alone(): void
+    {
+        config(['mymate.neighbours.snmp_timeout_ms' => 12000, 'mymate.neighbours.snmp_retries' => 0]);
+        (new AppServiceProvider($this->app))->register(); // the real bindings, over setUp's fakes
+        $snmpOf = fn () => (new \ReflectionProperty(SnmpNeighbourReader::class, 'snmp'))->getValue(app(SnmpNeighbourReader::class));
+
+        $client = $snmpOf();
+        $this->assertInstanceOf(PhpSnmpClient::class, $client);
+        $this->assertSame(12_000_000, (new \ReflectionProperty(PhpSnmpClient::class, 'timeoutUs'))->getValue($client));
+        $this->assertSame(0, (new \ReflectionProperty(PhpSnmpClient::class, 'retries'))->getValue($client));
+
+        $this->app->instance(SnmpClient::class, $this->snmp);
+        $this->assertSame($this->snmp, $snmpOf());
+    }
+
+    public function test_a_failed_read_is_retried_sooner_backing_off_to_the_interval(): void
+    {
+        Queue::fake();
+        $snmp = fn (int $failures, int $minutesAgo) => Device::factory()->create([
+            'poll_method' => PollMethod::Snmp,
+            'neighbours_failures' => $failures,
+            'neighbours_collected_at' => now()->subMinutes($minutesAgo),
+        ])->id;
+
+        $due = [
+            $snmp(1, 11),  // first failure: 10 min
+            $snmp(2, 21),  // second: 20 min
+            $snmp(3, 41),  // third: 40 min
+            $snmp(9, 61),  // after that: the interval
+            $snmp(0, 61),  // healthy: the interval
+        ];
+        $snmp(1, 5);
+        $snmp(2, 15);
+        $snmp(3, 35);
+        $snmp(4, 50);   // 80 min would be past the interval - so the interval (60) applies
+        $snmp(0, 30);
+
+        $this->assertSame(5, app(DispatchNeighbourCollection::class)());
+        $queued = [];
+        Queue::assertPushed(CollectNeighbourDataJob::class, function (CollectNeighbourDataJob $job) use (&$queued) {
+            $queued[] = $job->deviceId;
+
+            return true;
+        });
+        $this->assertEqualsCanonicalizing($due, $queued);
+    }
+
+    public function test_the_cleanup_migration_removes_the_partial_mndp_rows_already_stored(): void
+    {
+        $device = Device::factory()->create();
+        $row = fn (array $attrs) => DB::table('neighbour_sightings')->insertGetId($attrs + [
+            'device_id' => $device->id, 'protocol' => 'mndp', 'local_if_index' => 14, 'remote_key' => 'vpn-b',
+            'remote_name' => 'vpn-b', 'remote_ip' => '10.255.252.1', 'first_seen_at' => now(), 'last_seen_at' => now(),
+        ]);
+        $real = $row([]);
+        $row(['local_if_index' => 0, 'remote_key' => '10.255.252.1', 'remote_name' => null]); // the ghost: keyed by IP
+        $row(['local_if_index' => 0, 'remote_key' => 'vpn-b']);                                // named, but no interface
+        $noAddress = $row(['local_if_index' => 5, 'remote_key' => 'd4:a2:cd:16:fb:0a', 'remote_name' => null, 'remote_mac' => 'd4:a2:cd:16:fb:0a', 'remote_ip' => '0.0.0.0']);
+        $lldp = $row(['protocol' => 'lldp', 'local_if_index' => 0, 'remote_key' => 'x y', 'remote_name' => null]); // other protocols untouched
+
+        (require database_path('migrations/2026_11_17_000003_remove_partial_mndp_sightings.php'))->up();
+
+        $this->assertEqualsCanonicalizing([$real, $noAddress, $lldp], DB::table('neighbour_sightings')->pluck('id')->map(fn ($id) => (int) $id)->all());
+        $this->assertNull(DB::table('neighbour_sightings')->where('id', $noAddress)->value('remote_ip'));
+        $this->assertSame('10.255.252.1', DB::table('neighbour_sightings')->where('id', $real)->value('remote_ip'));
     }
 
     public function test_due_snmp_devices_are_queued_on_their_own_queue(): void

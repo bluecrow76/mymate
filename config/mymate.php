@@ -220,6 +220,15 @@ return [
         // Safety cap per device and table, so a core switch with a huge MAC table can't flood
         // the database in one go. Rows past the cap are skipped (and logged).
         'max_rows_per_table' => (int) env('MYMATE_NEIGHBOURS_MAX_ROWS', 20000),
+        // SNMP timeout for neighbour reads - longer than polling's 1s: CCR2004/RB5009 routers
+        // take ~9s to answer the first bridge-table request while they build it. Per request,
+        // per attempt; an unreachable device still costs only one (the read stops at the first
+        // walk), and a read stops after two timeouts.
+        'snmp_timeout_ms' => (int) env('MYMATE_NEIGHBOURS_SNMP_TIMEOUT_MS', 15000),
+        'snmp_retries' => (int) env('MYMATE_NEIGHBOURS_SNMP_RETRIES', 1),
+        // After a failed or partial read, try again this many seconds later, doubling each
+        // time it fails again, up to the interval.
+        'retry_after' => (int) env('MYMATE_NEIGHBOURS_RETRY_AFTER', 600),
     ],
 
     // Geographic map overlay (GitHub #11). Raster tiles are loaded straight from the tile

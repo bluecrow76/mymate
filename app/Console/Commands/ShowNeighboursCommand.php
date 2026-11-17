@@ -40,7 +40,7 @@ class ShowNeighboursCommand extends Command
         }
         $this->line('Last read: '.($data['collected_at'] !== null ? self::ago($data['collected_at']) : 'never'));
         if ($data['error'] !== null) {
-            $this->error('Last read failed: '.$data['error']);
+            $this->error($data['error']);
         }
 
         $this->newLine();

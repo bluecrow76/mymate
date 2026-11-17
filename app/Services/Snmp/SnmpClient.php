@@ -17,7 +17,7 @@ interface SnmpClient
      * GET one or more scalar OIDs.
      *
      * @param  list<string>  $oids
-     * @return array<string, string> oid => value (SNMP_VALUE_PLAIN, no type prefix)
+     * @return array<string, string> oid => value (no type prefix or quotes - see PhpSnmpClient::plain())
      *
      * @throws SnmpClientException on timeout / transport error.
      */

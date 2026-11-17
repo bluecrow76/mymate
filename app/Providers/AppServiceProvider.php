@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Services\Discovery\HostProber;
 use App\Services\Discovery\Scanner;
+use App\Services\Neighbours\SnmpNeighbourReader;
 use App\Services\Ping\FpingRunner;
 use App\Services\Ping\Pinger;
 use App\Services\RouterOs\EvilFreelancerRouterOsClient;
@@ -37,6 +38,21 @@ class AppServiceProvider extends ServiceProvider
             timeoutUs: (int) config('mymate.snmp.timeout_us', 1_000_000),
             retries: (int) config('mymate.snmp.retries', 1),
         ));
+
+        // Neighbour reads get their own, more patient client: a router builds its bridge table on
+        // demand and takes ~9s to answer the first request, far past polling's 1s timeout. Only
+        // the real client is swapped - a test's fake SnmpClient is used as it is.
+        $this->app->bind(SnmpNeighbourReader::class, function (Application $app) {
+            $snmp = $app->make(SnmpClient::class);
+            if ($snmp instanceof PhpSnmpClient) {
+                $snmp = new PhpSnmpClient(
+                    timeoutUs: max(1, (int) config('mymate.neighbours.snmp_timeout_ms', 15000)) * 1000,
+                    retries: max(0, (int) config('mymate.neighbours.snmp_retries', 1)),
+                );
+            }
+
+            return new SnmpNeighbourReader($snmp);
+        });
 
         // Stateless - connection details (incl. the short timeout) come per device
         // via RouterOsTarget. Swap this bind for a REST impl behind the same interface.

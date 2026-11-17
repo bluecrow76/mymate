@@ -20,8 +20,14 @@ of commit subjects.
   moved to another port is kept as history, not overwritten. This builds up the data that
   suggested links and topology change alerts will use. It runs hourly per device on its own
   background queue, so it never slows polling, and Settings > Engine can turn it off or change the
-  interval and how long history is kept (30 days by default). Restart Horizon after upgrading so
-  the new queue gets a worker.
+  interval and how long history is kept (30 days by default). Each table is read on its own with
+  a longer SNMP timeout than polling, so a router that's slow to answer for its bridge table
+  (CCR2004 and RB5009 take ~9s) still gives everything else, and a read that fails or comes back
+  partial is tried again after 10, 20 then 40 minutes instead of waiting the full hour. Older
+  UniFi switches (US-24-Pro, US-48-Pro, ES-16-XG) have their MAC tables read through Q-BRIDGE,
+  PCs that send LLDP without a system name show their hostname, and UPS network cards that refuse
+  the LLDP table no longer fail the whole read. Restart Horizon after upgrading so the new queue
+  gets a worker.
 - A Neighbours tab on the device page of SNMP-polled devices shows what's been collected: LLDP and
   MikroTik neighbours with the port they're on at each end, the MAC addresses behind each port
   (busiest first, so uplinks stand out) with their IP and the My Mate device they belong to where
@@ -29,6 +35,10 @@ of commit subjects.
   port, and can include entries the latest read no longer saw. Restricted operators don't get it,
   since it names devices beyond their maps. `php artisan mymate:neighbours:show <device>` prints
   the same in a terminal.
+
+### Fixed
+- SNMP sessions no longer log a PHP deprecation notice each time they're opened (a misspelt
+  option that never took effect has been removed).
 
 ## [2.2.0] - 2026-11-22
 

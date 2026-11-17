@@ -16,6 +16,8 @@ final class NeighbourSnapshot
      * @param  list<array{port: int, if_index: ?int, mac: string, vlan: int}>  $fdb
      * @param  list<array{ip: string, mac: string, if_index: ?int}>  $arp
      * @param  list<string>  $truncated  tables that hit the per-table row cap
+     * @param  array<string, string>  $failed  table (addresses|lldp|mndp|fdb|arp) => why it couldn't be read;
+     *                                         that table's data is left out and its rows aren't refreshed
      */
     public function __construct(
         public array $interfaceMacs = [],
@@ -24,5 +26,6 @@ final class NeighbourSnapshot
         public array $fdb = [],
         public array $arp = [],
         public array $truncated = [],
+        public array $failed = [],
     ) {}
 }
