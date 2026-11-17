@@ -396,6 +396,7 @@ Route::middleware(['auth:sanctum', EnsurePasskeyVerified::class, RestrictWritesT
 
     // Outage timeline - ?device_id= , ?state=open|closed.
     Route::get('outages', [OutageController::class, 'index'])->name('outages.index');
+    Route::get('outages/histogram', [OutageController::class, 'histogram'])->name('outages.histogram');
 
     // MikroTik "The Dude" import (FR-Dude): upload a dude.db, then poll the run for
     // live stage/percent/ETA; cancel stops it cleanly.

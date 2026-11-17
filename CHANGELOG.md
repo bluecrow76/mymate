@@ -16,6 +16,14 @@ of commit subjects.
 ### Added
 - The Outages page shows each device's IP address, and can be limited to the devices on one map,
   with its sub-maps included unless you untick Include sub-maps. The filters are remembered.
+- The Outages page has a time range (last hour up to 6 months, 24 hours by default) and a
+  histogram above the list of how many devices went down in each slice of it. The bars stack by
+  map - the top-level maps, or the sub-maps of the map you've picked - or by device type, and a
+  flapping device counts once per bar. Hover a bar for its breakdown, click it to list just
+  those outages, and click a legend entry to filter to that map or type. The histogram can be
+  collapsed. The list follows the range too (plus anything still down), and can now also be
+  filtered to device types and set to hide outages shorter than 1, 5, 10, 15 or 30 minutes.
+  Run migrations after upgrading: it adds an index for reading outages by time.
 - Settings > Security can let restricted operators open the Outages page, showing only outages
   for the devices on their maps. It's off by default, as before, and the Outages menu item and
   count are now hidden from them while it's off (the page used to be listed but fail to load).

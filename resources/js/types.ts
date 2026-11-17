@@ -698,6 +698,29 @@ export interface Outage {
     cause: string | null;
 }
 
+/** Outages page time ranges (App\Support\OutageWindow::RANGES). */
+export type OutageRange = '1h' | '2h' | '4h' | '6h' | '12h' | '24h' | '1w' | '2w' | '1mo' | '2mo' | '3mo' | '6mo';
+
+/** A histogram segment: a map branch, a device type, "other" or "none" (not on a map). */
+export interface OutageHistogramGroup {
+    key: string;
+    label: string;
+    map_id: number | null;
+    type: DeviceType | null;
+    devices: number; // distinct devices in this group over the whole range
+}
+
+export interface OutageHistogram {
+    range: OutageRange;
+    group_by: 'map' | 'type';
+    from: string;
+    to: string;
+    bucket_s: number;
+    groups: OutageHistogramGroup[];
+    // Distinct devices that went down in each bar; counts by group key (each device in one group).
+    buckets: { start: string; end: string; total: number; counts: Record<string, number> }[];
+}
+
 // Live throughput event (App\Events\InterfaceUtilUpdated) - coalesced across devices.
 // Port-list extras on a live interface frame (App\Services\Polling\LiveInterfaceFrame). Each is only
 // there when it changed, a missing key means keep what you have.
