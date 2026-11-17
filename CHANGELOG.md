@@ -14,6 +14,10 @@ of commit subjects.
 ## [Unreleased]
 
 ### Added
+- `php artisan mymate:neighbours:reset <device> [<device> ...]` clears everything collected about
+  a device's neighbours, history included, for equipment that has moved - a router set up at the
+  office and then sent to a jobsite no longer shows the office's neighbours. It shows what will be
+  removed and asks first (`--force` skips that), and the device is read again within a minute.
 - My Mate now records what each SNMP-polled device can see of its neighbours: LLDP and MikroTik
   neighbours, which MAC addresses sit behind which port, the ARP table, and each device's own
   interface MACs and IP addresses. Each entry keeps when it was first and last seen, so a cable

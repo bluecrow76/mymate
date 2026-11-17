@@ -3,7 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\Neighbours\GetDeviceNeighbours;
-use App\Models\Device;
+use App\Console\Commands\Concerns\FindsDevice;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 
@@ -14,6 +14,8 @@ use Illuminate\Support\Carbon;
  */
 class ShowNeighboursCommand extends Command
 {
+    use FindsDevice;
+
     protected $signature = 'mymate:neighbours:show
         {device : Device id, management IP or name}
         {--macs : List every MAC behind each port, not just the counts}
@@ -98,31 +100,6 @@ class ShowNeighboursCommand extends Command
         )) ?: 'none'));
 
         return self::SUCCESS;
-    }
-
-    private function findDevice(string $needle): ?Device
-    {
-        $device = ctype_digit($needle) ? Device::find((int) $needle) : null;
-        $device ??= Device::where('mgmt_ip', $needle)->first();
-        if ($device !== null) {
-            return $device;
-        }
-
-        $matches = Device::whereRaw('lower(name) = ?', [mb_strtolower($needle)])->get();
-        if ($matches->isEmpty()) {
-            $matches = Device::where('name', 'ilike', '%'.addcslashes($needle, '%_\\').'%')->orderBy('name')->limit(20)->get();
-        }
-        if ($matches->count() === 1) {
-            return $matches->first();
-        }
-        if ($matches->isEmpty()) {
-            $this->error("No device matches \"{$needle}\".");
-        } else {
-            $this->error("\"{$needle}\" matches several devices - use the id:");
-            $this->table(['Id', 'Name', 'IP'], $matches->map(fn (Device $d) => [$d->id, $d->name, $d->mgmt_ip])->all());
-        }
-
-        return null;
     }
 
     /** @param  array{id: int, name: string}|null  $device */
