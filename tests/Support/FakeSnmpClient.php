@@ -29,6 +29,17 @@ class FakeSnmpClient implements SnmpClient
     public bool $throwOnWalk = false;
 
     /**
+     * Walks of these OIDs throw with the given message (eg "No response from ..." for a timeout,
+     * "(genError) A general failure occured" for an agent refusing a table).
+     *
+     * @var array<string, string>
+     */
+    public array $throwOn = [];
+
+    /** @var list<string> every OID walked, in order */
+    public array $walkCalls = [];
+
+    /**
      * When set, GETs answer from this [oid => value] table and only for the OIDs asked for (an
      * absent one is just missing, like PhpSnmpClient), and every request lands in $getCalls.
      *
@@ -63,8 +74,12 @@ class FakeSnmpClient implements SnmpClient
 
     public function walk(string $host, SnmpCredential $cred, string $baseOid): array
     {
+        $this->walkCalls[] = $baseOid;
         if ($this->throwOnWalk) {
             throw new SnmpClientException("SNMP walk failed for {$host}: no response");
+        }
+        if (isset($this->throwOn[$baseOid])) {
+            throw new SnmpClientException("SNMP walk failed for {$host}: {$this->throwOn[$baseOid]}");
         }
 
         return $this->walks[$baseOid] ?? [];

@@ -14,8 +14,9 @@ use App\Support\MacAddress;
  * Big tables are walked a column at a time, only the columns used (the full ARP table on a busy
  * router is ~3,200 values where the two columns needed are ~1,600). Small tables (LLDP, MNDP)
  * are walked whole and split by column. A table the device doesn't implement comes back empty
- * (SnmpClient treats noSuchObject / end-of-MIB as "nothing here"); a transport failure throws
- * SnmpClientException straight away, so an unreachable device costs one timeout, not ten.
+ * (SnmpClient treats noSuchObject / end-of-MIB as "nothing here", and this class a genError).
+ * If the first walk gets no answer the read throws, so an unreachable device costs one timeout,
+ * not ten; after that each table succeeds or fails on its own (see read()).
  *
  * Field notes this parser is built on (tested on RouterOS 7.24/7.25 and UniFi USW, Nov 2026):
  *  - RouterOS sends LLDP chassis/port ids as 17-character text ("74:FA:29:67:D6:09"), not raw
@@ -27,6 +28,12 @@ use App\Support\MacAddress;
  *  - The FDB is read from dot1dTpFdbPort, not Q-BRIDGE: on UniFi the Q-BRIDGE table walked from
  *    its column silently skips whole VLANs (125 of ~245 rows), while dot1dTpFdb was complete on
  *    every device tested. So no VLAN for now - it isn't needed to place physical links.
+ *    Older UniFi switches (US-24-Pro, US-48-Pro, ES-16-XG) return an empty dot1dTpFdb but a
+ *    full dot1qTpFdbPort, so that is the fallback when dot1dTpFdb is empty.
+ *  - CCR2004 / RB5009 routers on RouterOS 7.24-7.25 take ~9s to answer the first FDB request
+ *    after a pause (the table is built on demand) and their agent stays busy for a moment after.
+ *    Neighbour reads therefore use a longer SNMP timeout than polling (mymate.neighbours.snmp_*),
+ *    and each table is read on its own so one slow table can't lose the others.
  *  - UniFi SNMP agents are slow (~25-50 ms per value; a 240-MAC table takes 5-12s) and the
  *    smallest one stopped answering under large GETBULK requests, so the client's default bulk
  *    size is kept. Neighbour reads run on their own queue for that reason.
@@ -37,7 +44,10 @@ use App\Support\MacAddress;
  *    Sightings tolerate any short read that's left: rows not seen just aren't refreshed.
  *  - ARP rows of type invalid(2) are failed lookups (often with an empty MAC) - dropped.
  *  - MNDP rows over VPN tunnels repeat the same neighbour many times - de-duplicated by key.
- *  - The MNDP table can change mid-walk, leaving rows with only some columns - tolerated.
+ *  - The MNDP table can change mid-walk, leaving rows with only some columns - rows without
+ *    their local ifIndex or without a MAC/identity are skipped (they'd be nameless duplicates).
+ *  - LLDP neighbours that send no system name (Windows PCs, docks) carry their hostname as a
+ *    locally assigned chassis id (subtype 7) - used as the name.
  */
 class SnmpNeighbourReader
 {
@@ -59,6 +69,11 @@ class SnmpNeighbourReader
 
     private const FDB_PORT = '.1.3.6.1.2.1.17.4.3.1.2';         // dot1dTpFdbPort (index = MAC octets)
 
+    private const Q_FDB_PORT = '.1.3.6.1.2.1.17.7.1.2.2.1.2';   // dot1qTpFdbPort (index = fdbId.MAC octets)
+
+    /** Timeouts in one read before the remaining tables are skipped (see read()). */
+    private const MAX_TIMEOUTS = 2;
+
     private const ARP_PHYS_ADDRESS = '.1.3.6.1.2.1.4.22.1.2';   // ipNetToMediaPhysAddress (index = ifIndex.ip)
 
     private const ARP_TYPE = '.1.3.6.1.2.1.4.22.1.4';           // ipNetToMediaType
@@ -78,6 +93,14 @@ class SnmpNeighbourReader
     public function __construct(private SnmpClient $snmp, private float $confirmDelayS = 1.0) {}
 
     /**
+     * Each table is read on its own: one that times out or errors is recorded in
+     * $snap->failed and the rest still come back, so a router whose bridge table is slow to
+     * answer still gives its LLDP, MNDP and addresses. A genError (APC cards answer LLDP that
+     * way) means "not supported here" and reads as empty. Only the first walk is all-or-nothing:
+     * if the device doesn't answer that, it isn't answering at all. After MAX_TIMEOUTS timeouts
+     * the remaining tables are skipped, so a device that goes quiet mid-read can't hold a worker
+     * for a timeout per table.
+     *
      * @param  bool  $mikrotik  also read the MikroTik MNDP table (skipped for other vendors)
      *
      * @throws SnmpClientException when the device doesn't answer
@@ -86,7 +109,7 @@ class SnmpNeighbourReader
     {
         $snap = new NeighbourSnapshot;
 
-        $ifMacs = $this->snmp->walk($host, $cred, self::IF_PHYS_ADDRESS);
+        $ifMacs = $this->walk($host, $cred, self::IF_PHYS_ADDRESS);
         foreach ($ifMacs as $ifIndex => $raw) {
             $mac = MacAddress::normalise($raw);
             if ($mac !== null && is_numeric($ifIndex)) {
@@ -97,29 +120,99 @@ class SnmpNeighbourReader
         // an FDB port as an ifIndex on devices without a dot1dBasePortTable.
         $ifIndexes = array_map('intval', array_filter(array_keys($ifMacs), 'is_numeric'));
 
-        $snap->addresses = $this->addresses(
-            $this->snmp->walk($host, $cred, self::IP_AD_IF_INDEX),
-            $this->snmp->walk($host, $cred, self::IP_AD_NET_MASK),
-        );
-        $snap->neighbours = [
-            ...$this->lldp($this->table($host, $cred, self::LLDP_REM), $this->table($host, $cred, self::LLDP_REM_MAN_ADDR)),
-            ...($mikrotik ? $this->mndp($this->table($host, $cred, self::MNDP)) : []),
-        ];
+        $timeouts = 0;
+        // A table's walks all succeed or the table is left out: a half-read table would store
+        // wrong data (an FDB without its bridge-port map, LLDP without its management IPs).
+        $attempt = function (string $table, callable $read) use ($snap, &$timeouts): void {
+            if ($timeouts >= self::MAX_TIMEOUTS) {
+                $snap->failed[$table] = 'skipped - the device stopped answering';
 
-        $fdbPorts = $this->fdbPorts($host, $cred);
-        $basePorts = [];
-        if ($fdbPorts !== []) {
-            foreach ($this->snmp->walk($host, $cred, self::BASE_PORT_IF_INDEX) as $port => $ifIndex) {
-                $basePorts[(int) $port] = (int) $ifIndex;
+                return;
             }
-        }
-        $snap->fdb = $this->cap($this->fdb($fdbPorts, $basePorts, $ifIndexes), 'fdb', $maxRows, $snap);
+            try {
+                $read();
+            } catch (SnmpClientException $e) {
+                $snap->failed[$table] = self::reason($e);
+                if (self::isTimeout($e)) {
+                    $timeouts++;
+                }
+            }
+        };
 
-        $arpMacs = $this->snmp->walk($host, $cred, self::ARP_PHYS_ADDRESS);
-        $arpTypes = $arpMacs !== [] ? $this->snmp->walk($host, $cred, self::ARP_TYPE) : [];
-        $snap->arp = $this->cap($this->arp($arpMacs, $arpTypes), 'arp', $maxRows, $snap);
+        $attempt('addresses', function () use ($snap, $host, $cred) {
+            $snap->addresses = $this->addresses(
+                $this->walk($host, $cred, self::IP_AD_IF_INDEX),
+                $this->walk($host, $cred, self::IP_AD_NET_MASK),
+            );
+        });
+        $attempt('lldp', function () use ($snap, $host, $cred) {
+            $snap->neighbours = [
+                ...$snap->neighbours,
+                ...$this->lldp($this->table($host, $cred, self::LLDP_REM), $this->table($host, $cred, self::LLDP_REM_MAN_ADDR)),
+            ];
+        });
+        if ($mikrotik) {
+            $attempt('mndp', function () use ($snap, $host, $cred) {
+                $snap->neighbours = [...$snap->neighbours, ...$this->mndp($this->table($host, $cred, self::MNDP))];
+            });
+        }
+
+        $attempt('fdb', function () use ($snap, $host, $cred, $ifIndexes, $maxRows) {
+            $fdbPorts = $this->fdbPorts($host, $cred);
+            $vlanKeyed = false;
+            if ($fdbPorts === []) {
+                // No dot1dTpFdb (older UniFi US/ES switches): the Q-BRIDGE table instead, index
+                // fdbId.mac - the fdbId is the VLAN on these switches.
+                $fdbPorts = $this->walk($host, $cred, self::Q_FDB_PORT);
+                $vlanKeyed = true;
+            }
+            $basePorts = [];
+            if ($fdbPorts !== []) {
+                foreach ($this->walk($host, $cred, self::BASE_PORT_IF_INDEX) as $port => $ifIndex) {
+                    $basePorts[(int) $port] = (int) $ifIndex;
+                }
+            }
+            $snap->fdb = $this->cap($this->fdb($fdbPorts, $basePorts, $ifIndexes, $vlanKeyed), 'fdb', $maxRows, $snap);
+        });
+
+        $attempt('arp', function () use ($snap, $host, $cred, $maxRows) {
+            $arpMacs = $this->walk($host, $cred, self::ARP_PHYS_ADDRESS);
+            $arpTypes = $arpMacs !== [] ? $this->walk($host, $cred, self::ARP_TYPE) : [];
+            $snap->arp = $this->cap($this->arp($arpMacs, $arpTypes), 'arp', $maxRows, $snap);
+        });
 
         return $snap;
+    }
+
+    /**
+     * A walk where genError reads as an empty table: some agents (APC network cards) answer a
+     * table they don't implement with a general failure instead of noSuchObject.
+     *
+     * @return array<string, string>
+     */
+    private function walk(string $host, SnmpCredential $cred, string $oid): array
+    {
+        try {
+            return $this->snmp->walk($host, $cred, $oid);
+        } catch (SnmpClientException $e) {
+            if (str_contains(strtolower($e->getMessage()), 'generror')) {
+                return [];
+            }
+            throw $e;
+        }
+    }
+
+    private static function isTimeout(SnmpClientException $e): bool
+    {
+        $m = strtolower($e->getMessage());
+
+        return str_contains($m, 'no response') || str_contains($m, 'timeout');
+    }
+
+    /** "SNMP walk failed for 10.0.0.1: No response from 10.0.0.1" -> "No response from 10.0.0.1". */
+    private static function reason(SnmpClientException $e): string
+    {
+        return mb_substr((string) preg_replace('/^SNMP \w+ failed for [^:]+: /', '', $e->getMessage()), 0, 120);
     }
 
     /**
@@ -131,7 +224,7 @@ class SnmpNeighbourReader
     private function fdbPorts(string $host, SnmpCredential $cred): array
     {
         $started = microtime(true);
-        $ports = $this->snmp->walk($host, $cred, self::FDB_PORT);
+        $ports = $this->walk($host, $cred, self::FDB_PORT);
         if ($ports === [] || microtime(true) - $started >= self::FDB_CONFIRM_BELOW_S) {
             return $ports;
         }
@@ -139,7 +232,7 @@ class SnmpNeighbourReader
         $previous = count($ports);
         for ($pass = 0; $pass < 2; $pass++) {
             usleep((int) ($this->confirmDelayS * 1_000_000));
-            $again = $this->snmp->walk($host, $cred, self::FDB_PORT);
+            $again = $this->walk($host, $cred, self::FDB_PORT);
             $ports += $again;
             if (abs(count($again) - $previous) <= max(1, (int) ($previous * 0.05))) {
                 break; // two walks agree - the table has settled
@@ -158,7 +251,7 @@ class SnmpNeighbourReader
     private function table(string $host, SnmpCredential $cred, string $baseOid): array
     {
         $cols = [];
-        foreach ($this->snmp->walk($host, $cred, $baseOid) as $suffix => $value) {
+        foreach ($this->walk($host, $cred, $baseOid) as $suffix => $value) {
             // "1.<col>.<index...>" - the leading 1 is the table's entry node.
             $parts = explode('.', ltrim((string) $suffix, '.'), 3);
             if (count($parts) === 3 && $parts[0] === '1' && ctype_digit($parts[1])) {
@@ -214,7 +307,8 @@ class SnmpNeighbourReader
 
             // Chassis subtype 4 = macAddress: then the value may be raw bytes. Any other subtype is
             // text, but RouterOS sends its MAC as text too, so try that without the raw-byte form.
-            $chassisMac = MacAddress::normalise($chassisRaw, (int) ($cols[4][$index] ?? 0) === 4);
+            $chassisSubtype = (int) ($cols[4][$index] ?? 0);
+            $chassisMac = MacAddress::normalise($chassisRaw, $chassisSubtype === 4);
             $chassisId = $chassisMac ?? self::text($chassisRaw);
             $portRaw = $cols[7][$index] ?? null;
             $portMac = (int) ($cols[6][$index] ?? 0) === 3 ? MacAddress::normalise($portRaw) : null;
@@ -233,7 +327,9 @@ class SnmpNeighbourReader
                 'chassis_id' => $chassisId,
                 'mac' => $chassisMac,
                 'ip' => $ips[$remKey] ?? null,
-                'name' => self::text($cols[9][$index] ?? null),
+                // No system name (Windows PCs, docks): a locally assigned chassis id (subtype 7)
+                // is the host's name, so show that rather than nothing.
+                'name' => self::text($cols[9][$index] ?? null) ?? ($chassisSubtype === 7 && $chassisMac === null ? $chassisId : null),
                 'port_id' => $portId,
                 'port_description' => self::text($cols[8][$index] ?? null),
                 'platform' => null,
@@ -286,17 +382,22 @@ class SnmpNeighbourReader
 
         $out = [];
         foreach (array_keys($rows) as $index) {
-            $ip = $cols[2][$index] ?? null;
-            $ip = $ip !== null && filter_var($ip, FILTER_VALIDATE_IP) ? $ip : null;
+            // A row the table dropped mid-walk comes back with only some columns. Without its
+            // local interface or anything naming the neighbour (MAC or identity) it would be
+            // stored as a second, nameless copy of a neighbour already seen - so it's skipped.
+            $localIfIndex = (int) ($cols[8][$index] ?? 0);
             $mac = MacAddress::normalise($cols[3][$index] ?? null);
             $identity = self::text($cols[6][$index] ?? null);
-            $key = $mac ?? $identity ?? $ip;
-            if ($key === null) {
-                continue; // a half-read row with nothing to identify it
+            $key = $mac ?? $identity;
+            if ($key === null || $localIfIndex <= 0) {
+                continue;
             }
+            // RouterOS reports 0.0.0.0 for a neighbour that announced no address.
+            $ip = $cols[2][$index] ?? null;
+            $ip = $ip !== null && $ip !== '0.0.0.0' && filter_var($ip, FILTER_VALIDATE_IP) ? $ip : null;
             $out[] = [
                 'protocol' => 'mndp',
-                'local_if_index' => (int) ($cols[8][$index] ?? 0),
+                'local_if_index' => $localIfIndex,
                 'remote_key' => self::key($key),
                 'chassis_id' => null,
                 'mac' => $mac,
@@ -314,7 +415,8 @@ class SnmpNeighbourReader
     }
 
     /**
-     * dot1dTpFdbPort, index = the MAC's six octets, value = bridge port. Port 0 means the port
+     * dot1dTpFdbPort, index = the MAC's six octets, value = bridge port - or, with $vlanKeyed,
+     * dot1qTpFdbPort, index = fdbId + the six octets (the fdbId kept as the VLAN). Port 0 means the port
      * isn't known (RouterOS reports its own MACs that way) and is skipped. The status column
      * isn't read - it costs as much again on a slow agent, and the device's own MACs it would
      * flag are already known from ifPhysAddress.
@@ -324,7 +426,7 @@ class SnmpNeighbourReader
      * @param  list<int>  $ifIndexes
      * @return list<array{port: int, if_index: ?int, mac: string, vlan: int}>
      */
-    private function fdb(array $ports, array $basePorts, array $ifIndexes): array
+    private function fdb(array $ports, array $basePorts, array $ifIndexes, bool $vlanKeyed = false): array
     {
         $known = array_flip($ifIndexes);
         $out = [];
@@ -332,7 +434,15 @@ class SnmpNeighbourReader
             if (! is_numeric($port) || (int) $port <= 0) {
                 continue;
             }
-            $mac = MacAddress::fromOidOctets(explode('.', (string) $index));
+            $octets = explode('.', (string) $index);
+            $vlan = 0;
+            if ($vlanKeyed) {
+                if (count($octets) !== 7 || ! ctype_digit($octets[0])) {
+                    continue;
+                }
+                $vlan = min(65535, (int) array_shift($octets));
+            }
+            $mac = MacAddress::fromOidOctets($octets);
             if ($mac === null) {
                 continue;
             }
@@ -341,7 +451,7 @@ class SnmpNeighbourReader
                 'port' => $port,
                 'if_index' => $basePorts[$port] ?? (isset($known[$port]) ? $port : null),
                 'mac' => $mac,
-                'vlan' => 0, // not read yet - see the class notes on Q-BRIDGE
+                'vlan' => $vlan, // 0 = not reported (dot1dTpFdb has no VLAN)
             ];
         }
 

@@ -15,13 +15,15 @@ use Throwable;
 
 /**
  * Read a device's neighbour data (LLDP, MNDP, bridge FDB, ARP, interface MACs and addresses)
- * and record it as sightings. Runs on the interface-discovery cadence, after the interfaces
- * themselves, so ifIndexes resolve to interface rows.
+ * and record it as sightings. Queued per device by DispatchNeighbourCollection; ifIndexes resolve
+ * to the interface rows interface discovery already made.
  *
  * Sightings are only ever inserted or refreshed: an upsert on each table's identity columns
  * sets first_seen_at once and moves last_seen_at on every later sighting. Something that stops
  * being seen keeps its old row (history) until the daily prune drops it. So a failed or partial
- * read costs nothing - rows just aren't refreshed that cycle.
+ * read costs nothing - rows just aren't refreshed that cycle. A partial read (some tables timed
+ * out) stores what did come back and records which tables didn't in neighbours_error; any
+ * failure bumps neighbours_failures, which brings the next attempt forward (see the dispatcher).
  *
  * Best-effort and never throws, like CaptureDeviceFacts: a device without LLDP, a slow walk or
  * an unreachable host must not break a discovery tick. Only SNMP-polled devices on this server
@@ -59,7 +61,7 @@ class CollectNeighbourData
         try {
             $snap = $this->reader->read($device->mgmt_ip, $cred, $mikrotik, $maxRows);
         } catch (Throwable $e) {
-            $this->finish($device, class_basename($e).': '.$e->getMessage());
+            $this->finish($device, "Couldn't read the device: ".(string) preg_replace('/^SNMP \w+ failed for [^:]+: /', '', $e->getMessage()));
             EngineLog::debug('neighbours: read failed', ['device_id' => $device->id, 'device' => $device->name, 'error' => $e->getMessage()]);
 
             return;
@@ -74,7 +76,10 @@ class CollectNeighbourData
             return;
         }
 
-        $this->finish($device, null);
+        $this->finish($device, self::partial($snap->failed));
+        if ($snap->failed !== []) {
+            EngineLog::info('neighbours: partial read', ['device_id' => $device->id, 'device' => $device->name, 'failed' => $snap->failed]);
+        }
         if ($snap->truncated !== []) {
             EngineLog::warning('neighbours: table capped', ['device_id' => $device->id, 'device' => $device->name, 'tables' => $snap->truncated, 'max_rows' => $maxRows]);
         }
@@ -168,11 +173,26 @@ class CollectNeighbourData
         }
     }
 
+    /** @param  array<string, string>  $failed  table => reason */
+    private static function partial(array $failed): ?string
+    {
+        if ($failed === []) {
+            return null;
+        }
+        $parts = [];
+        foreach ($failed as $table => $reason) {
+            $parts[] = "{$table} ({$reason})";
+        }
+
+        return 'Some tables couldn\'t be read: '.implode('; ', $parts);
+    }
+
     private function finish(Device $device, ?string $error): void
     {
         $device->forceFill([
             'neighbours_collected_at' => now(),
             'neighbours_error' => $error !== null ? mb_substr($error, 0, 500) : null,
+            'neighbours_failures' => $error !== null ? min(1000, (int) $device->neighbours_failures + 1) : 0,
         ])->save();
     }
 }

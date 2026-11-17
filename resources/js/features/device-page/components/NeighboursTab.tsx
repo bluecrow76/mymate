@@ -89,7 +89,7 @@ export function NeighboursTab({ device }: { device: Device }) {
                         Last read: <span className="text-white/85">{data.collected_at ? relativeTime(data.collected_at) : 'not yet'}</span>
                         {data.supported && data.enabled && <span className="text-white/35"> · read about every {Math.round(data.interval_s / 60)} min</span>}
                     </p>
-                    {data.error && <p className="text-rose-300">Last read failed: {data.error}</p>}
+                    {data.error && <p className="text-rose-300">{data.error}</p>}
                     {data.addresses.length > 0 && (
                         <p>
                             Own addresses:{' '}

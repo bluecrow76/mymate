@@ -10,8 +10,11 @@ use Throwable;
  *
  * - OID_OUTPUT_NUMERIC + suffix-as-keys means walk() returns [ifIndex => value].
  * - Short timeout (microseconds) + retries so a filtered port fails fast.
- * - Some net-snmp builds ignore SNMP_VALUE_PLAIN and still return "TYPE: value"
- *   (and quote strings), so values are normalised via plain() either way.
+ * - Values come in net-snmp's library format ("STRING: \"ether1\"", "Hex-STRING: 04 F4 ...",
+ *   "INTEGER: 3") and are normalised via plain(). Every parser (MACs especially, which arrive
+ *   as hex text rather than raw bytes) is built on that, so the session deliberately leaves
+ *   valueretrieval at its default. (It used to set $session->valueRetrieval - a misspelling
+ *   that ext-snmp ignored, apart from a PHP 8.2+ deprecation notice on every session.)
  *
  * Native ext-snmp failures (\SNMPException, returned-false) are normalised to our
  * SnmpClientException. Never include the community in thrown messages.
@@ -143,7 +146,6 @@ class PhpSnmpClient implements SnmpClient
             $session = new SNMP($version, $host, $cred->community, $this->timeoutUs, $this->retries);
         }
 
-        $session->valueRetrieval = SNMP_VALUE_PLAIN;
         $session->oid_output_format = SNMP_OID_OUTPUT_NUMERIC;
         $session->enum_print = false;
 
