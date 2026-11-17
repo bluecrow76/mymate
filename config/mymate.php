@@ -204,6 +204,24 @@ return [
         'default_speed_mbps' => (int) env('MYMATE_LINK_DEFAULT_SPEED_MBPS', 1000),
     ],
 
+    // Neighbour data: what each SNMP-polled device can see of its neighbours - LLDP and
+    // MikroTik MNDP neighbours, its bridge forwarding table (MAC -> port), its ARP table and its
+    // own interface MACs and IP addresses. Kept as sightings with first/last-seen times, the
+    // groundwork for link suggestions and topology change tracking. Read on its own `neighbours`
+    // queue (a busy router or a slow UniFi agent takes 10-20s - far too long for `poll`).
+    // collect / interval / retention_days are admin-editable (Settings > Engine).
+    'neighbours' => [
+        'collect' => (int) env('MYMATE_NEIGHBOURS_COLLECT', 1), // 1 on, 0 off
+        // How often each device is read. Links rarely change; hourly keeps a fleet of a few
+        // hundred SNMP devices well inside two workers.
+        'interval' => (int) env('MYMATE_NEIGHBOURS_INTERVAL', 3600),
+        // Sightings not refreshed for this many days are deleted (daily prune).
+        'retention_days' => (int) env('MYMATE_NEIGHBOURS_RETENTION_DAYS', 30),
+        // Safety cap per device and table, so a core switch with a huge MAC table can't flood
+        // the database in one go. Rows past the cap are skipped (and logged).
+        'max_rows_per_table' => (int) env('MYMATE_NEIGHBOURS_MAX_ROWS', 20000),
+    ],
+
     // Geographic map overlay (GitHub #11). Raster tiles are loaded straight from the tile
     // provider by the browser, so its host is added to the CSP img-src (SecurityHeaders).
     'map' => [

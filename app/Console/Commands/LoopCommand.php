@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Actions\History\ManageHistoryPartitions;
+use App\Actions\Neighbours\DispatchNeighbourCollection;
 use App\Enums\PollMethod;
 use App\Jobs\DiscoverInterfacesJob;
 use App\Jobs\EvaluateAlertsJob;
@@ -91,6 +92,7 @@ class LoopCommand extends Command
         $lastDiscover = microtime(true);
         $lastScanCheck = 0.0;
         $lastHistory = microtime(true);
+        $lastNeighbourCheck = 0.0;
 
         while (true) {
             // Re-read cadences each cycle so a Settings change applies without a restart.
@@ -139,6 +141,13 @@ class LoopCommand extends Command
             if ($now - $lastScanCheck >= $scanCheckInterval) {
                 EngineLog::debug('loop: scan check', ['dispatched' => $this->dispatchScans()]);
                 $lastScanCheck = $now;
+            }
+            // Neighbour data (LLDP/MNDP/FDB/ARP): each device's own last-read time sets the real
+            // cadence (Settings > Engine); this just queues whoever is due onto the isolated
+            // `neighbours` queue, once a minute.
+            if ($now - $lastNeighbourCheck >= 60) {
+                EngineLog::debug('loop: neighbour check', ['dispatched' => app(DispatchNeighbourCollection::class)()]);
+                $lastNeighbourCheck = $now;
             }
             // Roll history partitions forward + drop expired ones (light DDL, off-tick).
             if ($now - $lastHistory >= $historyInterval) {

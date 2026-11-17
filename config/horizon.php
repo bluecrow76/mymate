@@ -337,6 +337,23 @@ return [
             'nice' => 0,
         ],
 
+        // Neighbour data (LLDP/MNDP/FDB/ARP): isolated - a busy router's ARP table or a slow UniFi
+        // SNMP agent takes 10-20s per device, which must never hold up polling. redis-long so a
+        // slow read isn't redelivered at the 90s retry_after while it's still running.
+        'supervisor-neighbours' => [
+            'connection' => 'redis-long',
+            'queue' => ['neighbours'],
+            'balance' => 'auto',
+            'autoScalingStrategy' => 'size',
+            'maxProcesses' => 2,
+            'maxTime' => 0,
+            'maxJobs' => 0,
+            'memory' => 128,
+            'tries' => 1,
+            'timeout' => 180,
+            'nice' => 0,
+        ],
+
         // Dude imports (FR-Dude): isolated + long timeout - extraction (Python) plus
         // upserting millions of history rows must never block polling/discovery.
         'supervisor-import' => [
@@ -368,6 +385,7 @@ return [
             'supervisor-command' => ['maxProcesses' => 8],
             'supervisor-import' => ['maxProcesses' => 1],
             'supervisor-agent' => ['maxProcesses' => 1],
+            'supervisor-neighbours' => ['maxProcesses' => (int) env('MYMATE_NEIGHBOURS_PROCESSES', 2)],
         ],
 
         'local' => [
@@ -380,6 +398,7 @@ return [
             'supervisor-command' => ['maxProcesses' => 2],
             'supervisor-import' => ['maxProcesses' => 1],
             'supervisor-agent' => ['maxProcesses' => 1],
+            'supervisor-neighbours' => ['maxProcesses' => 1],
         ],
     ],
 
