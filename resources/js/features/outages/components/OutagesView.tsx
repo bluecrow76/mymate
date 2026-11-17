@@ -1,14 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Warning } from '@phosphor-icons/react';
-import { useOutages } from '../api/getOutages';
+import { useOutageHistogram, useOutages } from '../api/getOutages';
 import { StatusDot } from '../../../components/StatusDot';
 import { displayName } from '../../../lib/deviceName';
 import { relativeTime } from '../../../lib/relativeTime';
 import { useMaps } from '../../maps/api/maps';
 import { mapsInTreeOrder } from '../../maps/lib/mapTree';
 import { useShowOnMap } from '../../maps/lib/useShowOnMap';
-import { loadOutagePrefs, saveOutagePrefs, type OutageStateFilter } from '../lib/outagePrefs';
-import type { Outage } from '../../../types';
+import {
+    DEVICE_TYPE_OPTIONS,
+    MIN_DURATION_OPTIONS,
+    OUTAGE_RANGES,
+    loadOutagePrefs,
+    saveOutagePrefs,
+    type OutageColourBy,
+    type OutageStateFilter,
+} from '../lib/outagePrefs';
+import { DeviceTypeFilter } from './DeviceTypeFilter';
+import { OutageHistogram } from './OutageHistogram';
+import type { DeviceType, Outage, OutageHistogramGroup, OutageRange } from '../../../types';
 
 function fmtDuration(s: number | null): string {
     if (s === null) return '-';
@@ -31,20 +41,67 @@ function outageDeviceName(o: Outage): string {
     return o.device_name !== null ? displayName({ name: o.device_name, alias: o.device_alias }) : `device ${o.device_id}`;
 }
 
+/** "14:00 - 15:00" style label for the bar the list is narrowed to. */
+function windowLabel(w: { start: string; end: string }): string {
+    const s = new Date(w.start);
+    const e = new Date(w.end);
+    const day = (d: Date) => d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+    const time = (d: Date) => d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const midnight = (d: Date) => d.getHours() === 0 && d.getMinutes() === 0;
+    if (midnight(s) && midnight(e)) {
+        const last = new Date(e.getTime() - 1);
+        return s.toDateString() === last.toDateString() ? day(s) : `${day(s)} – ${day(last)}`;
+    }
+    return s.toDateString() === e.toDateString() ? `${day(s)} ${time(s)} – ${time(e)}` : `${day(s)} ${time(s)} – ${day(e)} ${time(e)}`;
+}
+
 export function OutagesView() {
-    // State, map and sub-maps are remembered in this browser, like the Devices page filters.
+    // Filters, the range and the histogram's layout are remembered in this browser, like the
+    // Devices page filters. The bar the list is narrowed to isn't - it belongs to this visit.
     const [saved] = useState(loadOutagePrefs);
     const [filter, setFilter] = useState<OutageStateFilter>(saved.state);
     const [mapId, setMapId] = useState<number | null>(saved.mapId);
     const [submaps, setSubmaps] = useState(saved.submaps);
+    const [deviceTypes, setDeviceTypes] = useState<DeviceType[]>(saved.deviceTypes);
+    const [minDuration, setMinDuration] = useState(saved.minDuration);
+    const [range, setRange] = useState<OutageRange>(saved.range);
+    const [colourBy, setColourBy] = useState<OutageColourBy>(saved.colourBy);
+    const [collapsed, setCollapsed] = useState(saved.histogramCollapsed);
+    const [bar, setBar] = useState<{ start: string; end: string } | null>(null);
     const { data: maps } = useMaps();
     const mapOptions = mapsInTreeOrder(maps ?? []);
     const hasSubmaps = mapId !== null && (maps ?? []).some((m) => m.parent_map_id === mapId);
 
-    const { data: outages, isLoading } = useOutages(filter === 'all' ? undefined : filter, mapId !== null ? { mapId, submaps } : {});
+    const state = filter === 'all' ? undefined : filter;
+    const shared = {
+        ...(mapId !== null ? { mapId, submaps } : {}),
+        deviceTypes,
+        minDuration,
+        range,
+    };
+    const { data: outages, isLoading } = useOutages(state, { ...shared, window: bar ? { from: bar.start, to: bar.end } : undefined });
+    const histogram = useOutageHistogram({ state, ...shared }, colourBy, !collapsed);
     const { go, menu } = useShowOnMap();
 
-    useEffect(() => saveOutagePrefs({ state: filter, mapId, submaps }), [filter, mapId, submaps]);
+    useEffect(
+        () => saveOutagePrefs({ state: filter, mapId, submaps, deviceTypes, minDuration, range, colourBy, histogramCollapsed: collapsed }),
+        [filter, mapId, submaps, deviceTypes, minDuration, range, colourBy, collapsed],
+    );
+
+    // A narrowed-to bar belongs to the chart it was picked from: any filter change redraws the
+    // chart, so it lets the bar go rather than leave the list on a slice that's moved.
+    const filterKey = JSON.stringify([filter, mapId, submaps, deviceTypes, minDuration, range]);
+    useEffect(() => setBar(null), [filterKey]);
+
+    const rangeLabel = OUTAGE_RANGES.find((r) => r.value === range)?.label ?? range;
+    const pickGroup = (g: OutageHistogramGroup) => {
+        if (g.map_id !== null) {
+            setMapId(g.map_id);
+            setSubmaps(true);
+        } else if (g.type !== null) {
+            setDeviceTypes([g.type]);
+        }
+    };
 
     // A remembered map that has since been deleted (or is no longer visible) would filter to
     // nothing with no option selected - drop back to every map.
@@ -53,7 +110,14 @@ export function OutagesView() {
     }, [maps, mapId]);
 
     const mapName = mapId !== null ? maps?.find((m) => m.id === mapId)?.name : undefined;
-    const emptyNote = [filter !== 'all' ? (filter === 'open' ? 'ongoing' : 'resolved') : null, mapName ? `on ${mapName}${hasSubmaps && submaps ? ' or its sub-maps' : ''}` : null]
+    const typeNames = DEVICE_TYPE_OPTIONS.filter((o) => deviceTypes.includes(o.value)).map((o) => o.label.toLowerCase());
+    const emptyNote = [
+        filter !== 'all' ? (filter === 'open' ? 'ongoing' : 'resolved') : null,
+        bar ? `started ${windowLabel(bar)}` : rangeLabel.toLowerCase(),
+        mapName ? `on ${mapName}${hasSubmaps && submaps ? ' or its sub-maps' : ''}` : null,
+        typeNames.length > 0 && typeNames.length < DEVICE_TYPE_OPTIONS.length ? typeNames.join(' / ') : null,
+        minDuration > 0 ? `${minDuration / 60} min or longer` : null,
+    ]
         .filter(Boolean)
         .join(', ');
 
@@ -71,6 +135,13 @@ export function OutagesView() {
                         </div>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                        <select value={range} onChange={(e) => setRange(e.target.value as OutageRange)} aria-label="Time range" className={selectCls}>
+                            {OUTAGE_RANGES.map((r) => (
+                                <option key={r.value} value={r.value}>
+                                    {r.label}
+                                </option>
+                            ))}
+                        </select>
                         {/* Capped: a native select is as wide as its longest option, and map names can be long. */}
                         <select
                             value={mapId ?? ''}
@@ -93,6 +164,21 @@ export function OutagesView() {
                                 Include sub-maps
                             </label>
                         )}
+                        <DeviceTypeFilter value={deviceTypes} onChange={setDeviceTypes} className={selectCls} />
+                        <select
+                            value={minDuration}
+                            onChange={(e) => setMinDuration(Number(e.target.value))}
+                            aria-label="Hide short outages"
+                            title="Hide resolved outages shorter than this (ongoing ones always show)"
+                            className={selectCls}
+                        >
+                            <option value={0}>Show short outages</option>
+                            {MIN_DURATION_OPTIONS.map((m) => (
+                                <option key={m} value={m * 60}>
+                                    Hide under {m} min
+                                </option>
+                            ))}
+                        </select>
                         <div className="flex items-center gap-0.5 rounded-full bg-white/5 p-0.5 ring-1 ring-white/10">
                             {(['all', 'open', 'closed'] as OutageStateFilter[]).map((f) => (
                                 <button key={f} onClick={() => setFilter(f)} className={pill(filter === f)}>
@@ -102,6 +188,33 @@ export function OutagesView() {
                         </div>
                     </div>
                 </header>
+
+                <OutageHistogram
+                    data={histogram.data}
+                    isLoading={histogram.isLoading}
+                    rangeLabel={rangeLabel}
+                    colourBy={colourBy}
+                    onColourBy={setColourBy}
+                    collapsed={collapsed}
+                    onToggleCollapsed={() => setCollapsed((c) => !c)}
+                    selectedStart={bar?.start ?? null}
+                    onSelectBar={setBar}
+                    onPickGroup={pickGroup}
+                />
+
+                {(bar || (outages && outages.length >= 500)) && (
+                    <div className="mb-2 flex flex-wrap items-center gap-2 px-1 text-xs text-white/50">
+                        {bar && (
+                            <span className="flex items-center gap-1.5 rounded-full bg-white/[0.05] py-0.5 pl-2.5 pr-1 ring-1 ring-white/10">
+                                Started {windowLabel(bar)}
+                                <button type="button" onClick={() => setBar(null)} className="rounded-full px-1.5 text-white/45 hover:bg-white/10 hover:text-white" aria-label="Show the whole range">
+                                    ×
+                                </button>
+                            </span>
+                        )}
+                        {outages && outages.length >= 500 && <span>Showing the newest 500 - narrow the range or filters to see the rest.</span>}
+                    </div>
+                )}
 
                 {isLoading ? (
                     <p className="px-1 text-sm text-white/40">Loading...</p>
