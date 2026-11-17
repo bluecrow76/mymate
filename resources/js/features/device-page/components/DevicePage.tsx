@@ -15,10 +15,11 @@ import { PortsTab } from './PortsTab';
 import { PortPage } from './PortPage';
 import { EventsTab } from './EventsTab';
 import { ConfigTab } from './ConfigTab';
+import { NeighboursTab } from './NeighboursTab';
 import { actionBtn } from './ui';
 import type { DeviceStatus } from '../../../types';
 
-type Tab = 'overview' | 'graphs' | 'ports' | 'events' | 'config';
+type Tab = 'overview' | 'graphs' | 'ports' | 'neighbours' | 'events' | 'config';
 
 const statusBadge: Record<DeviceStatus, { label: string; cls: string }> = {
     up: { label: 'Operational', cls: 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/25' },
@@ -28,7 +29,7 @@ const statusBadge: Record<DeviceStatus, { label: string; cls: string }> = {
 
 /**
  * The full device page (GitHub #28), LibreNMS style: /devices/{id} with Overview, Graphs,
- * Ports, Events and Config tabs, and /devices/{id}/ports/{ifId} for one port with its billing.
+ * Ports, Neighbours (SNMP devices), Events and Config tabs, and /devices/{id}/ports/{ifId} for one port with its billing.
  * Which device, port, tab and graph range are all in the URL, so any view can be linked.
  */
 export function DevicePage() {
@@ -56,6 +57,9 @@ function DevicePageBody({ deviceId, portId, params }: { deviceId: number; portId
         { id: 'overview', label: 'Overview' },
         { id: 'graphs', label: 'Graphs' },
         { id: 'ports', label: 'Ports' },
+        // Neighbour data is only collected for SNMP devices polled from this server, and names
+        // other devices, so restricted operators don't get it (the API refuses them too).
+        ...(!restricted && device?.poll_method === 'snmp' && device.agent_id === null ? [{ id: 'neighbours' as Tab, label: 'Neighbours' }] : []),
         { id: 'events', label: 'Events' },
         ...(restricted ? [] : [{ id: 'config' as Tab, label: 'Config' }]),
     ];
@@ -166,6 +170,8 @@ function DevicePageBody({ deviceId, portId, params }: { deviceId: number; portId
                     <GraphsTab device={device} params={params} />
                 ) : tab === 'ports' ? (
                     <PortsTab device={device} params={params} />
+                ) : tab === 'neighbours' ? (
+                    <NeighboursTab device={device} />
                 ) : tab === 'events' ? (
                     <EventsTab device={device} />
                 ) : (
