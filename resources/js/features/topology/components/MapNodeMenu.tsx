@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CaretRight, ClipboardText, Copy, EyeSlash, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
+import { CaretRight, ClipboardText, Copy, EyeSlash, Eraser, LinkBreak, PencilSimple, TrashSimple, TreeStructure } from '@phosphor-icons/react';
 import { StatusDot } from '../../../components/StatusDot';
 import type { Device } from '../../../types';
 import { ATTRIBUTE_LABEL, attributeOf, type DeviceAttributeClip, type DeviceAttributeKind } from '../../../lib/deviceAttributeClipboard';
@@ -9,7 +9,16 @@ const COPY_ITEMS: { kind: DeviceAttributeKind; label: string; title: string }[] 
     { kind: 'icon', label: 'Copy icon', title: 'The icon and its colour (or the automatic icon)' },
     { kind: 'location', label: 'Copy location', title: 'Where it sits on the geo map' },
     { kind: 'poll', label: 'Copy poll method', title: 'The poll method and its credential' },
+    { kind: 'parent', label: 'Copy parent', title: 'The uplink parent (or no parent)' },
 ];
+
+/** What a paste will put on the targets, for the Paste item's tooltip. */
+function clipDetail(clip: DeviceAttributeClip): string {
+    if (clip.kind === 'parent') {
+        return clip.parent_device_id === null ? 'No parent (pasting clears the parent)' : `Parent: ${clip.parent_name ?? `device #${clip.parent_device_id}`}`;
+    }
+    return '';
+}
 
 /** Where a right-click opened the menu, and on which device. The device itself is looked up
  *  live by id at render, so the menu can't outlive (or misreport) the thing it acts on. */
@@ -31,8 +40,9 @@ const MARGIN = 8; // keep the menu clear of the viewport edges
  *
  * Admin-only: every item is a write, and non-admin operators are read-only app-wide (FR-38).
  *
- * Copy attribute: put this device's icon, location or poll method on the attribute clipboard;
- * Paste then applies it to the right-clicked device, or to every selected one.
+ * Copy attribute: put this device's icon, location, poll method or parent on the attribute
+ * clipboard; Paste then applies it to the right-clicked device, or to every selected one, until
+ * Clear copied ... empties the clipboard.
  */
 export function MapNodeMenu({
     device,
@@ -49,6 +59,7 @@ export function MapNodeMenu({
     onCopyAttribute,
     clip = null,
     onPasteAttribute,
+    onClearAttribute,
 }: {
     device: Device;
     x: number;
@@ -66,6 +77,8 @@ export function MapNodeMenu({
     /** What's on the attribute clipboard, offered as a paste onto the selection (or this device). */
     clip?: DeviceAttributeClip | null;
     onPasteAttribute?: () => void;
+    /** Empty the attribute clipboard, so a later paste can't happen by accident. */
+    onClearAttribute?: () => void;
 }) {
     const ref = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState({ x, y });
@@ -134,9 +147,20 @@ export function MapNodeMenu({
                     const pasteCount = selectionCount >= 2 ? selectionCount : 1;
                     // Pasting a device's attribute back onto itself alone does nothing.
                     const canPaste = clip && onPasteAttribute && (selectionCount >= 2 || clip.fromId !== device.id);
-                    if (!onCopyAttribute && !canPaste) return null;
+                    const canClear = clip && onClearAttribute;
+                    if (!onCopyAttribute && !canPaste && !canClear) return null;
                     return (
                         <>
+                            {canClear && (
+                                <button
+                                    onClick={run(onClearAttribute)}
+                                    title={`Forget the ${ATTRIBUTE_LABEL[clip.kind]} copied from ${clip.fromName}, so it can't be pasted by accident`}
+                                    className={`${item} text-white/75`}
+                                >
+                                    <Eraser weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />
+                                    <span className="flex-1">Clear copied {ATTRIBUTE_LABEL[clip.kind]}</span>
+                                </button>
+                            )}
                             {onCopyAttribute && (
                                 <div className="relative" onMouseEnter={() => setCopyOpen(true)} onMouseLeave={() => setCopyOpen(false)}>
                                     <button
@@ -176,7 +200,7 @@ export function MapNodeMenu({
                             {canPaste && (
                                 <button
                                     onClick={run(onPasteAttribute)}
-                                    title={`Copied from ${clip.fromName}`}
+                                    title={[`Copied from ${clip.fromName}`, clipDetail(clip)].filter(Boolean).join('. ')}
                                     className={`${item} text-white/75`}
                                 >
                                     <ClipboardText weight="light" className="h-4 w-4 shrink-0 text-emerald-300" />

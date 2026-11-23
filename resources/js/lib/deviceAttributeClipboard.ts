@@ -12,11 +12,15 @@ import type { Device, PollMethod } from '../types';
  * - location: the coordinates the source shows at on the geo map (its own pin, or the site /
  *   parent position it inherits). Pasted, they become each target's own pin.
  * - poll: the poll method and its credential; the bulk endpoint needs the two together
+ * - parent: the uplink parent (null = no parent, which pasted clears the targets' parents). The
+ *   name only labels the menu and toasts; the paste sends the id, and the server refuses a
+ *   parent that would end up under itself.
  */
 export type DeviceAttribute =
     | { kind: 'icon'; icon: string | null; icon_color: string | null }
     | { kind: 'location'; latitude: number; longitude: number }
-    | { kind: 'poll'; poll_method: PollMethod; credential_id: number | null };
+    | { kind: 'poll'; poll_method: PollMethod; credential_id: number | null }
+    | { kind: 'parent'; parent_device_id: number | null; parent_name: string | null };
 
 export type DeviceAttributeClip = DeviceAttribute & { fromId: number; fromName: string };
 
@@ -39,6 +43,8 @@ export function attributeOf(device: Device, kind: DeviceAttributeKind): DeviceAt
                 : null;
         case 'poll':
             return { kind, poll_method: device.poll_method, credential_id: device.poll_method === 'none' ? null : device.credential_id };
+        case 'parent':
+            return { kind, parent_device_id: device.parent_device_id, parent_name: device.parent_device_id === null ? null : device.parent_name };
     }
 }
 
@@ -47,6 +53,7 @@ export const ATTRIBUTE_LABEL: Record<DeviceAttributeKind, string> = {
     icon: 'icon',
     location: 'location',
     poll: 'poll method',
+    parent: 'parent',
 };
 
 /** The changes a paste sends to the bulk edit. */
@@ -58,6 +65,8 @@ export function attributeChanges(attr: DeviceAttribute) {
             return { latitude: attr.latitude, longitude: attr.longitude };
         case 'poll':
             return { poll_method: attr.poll_method, credential_id: attr.credential_id };
+        case 'parent':
+            return { parent_device_id: attr.parent_device_id };
     }
 }
 
@@ -72,6 +81,17 @@ export function copyDeviceAttribute(device: Device, kind: DeviceAttributeKind): 
     }
     emit();
     return true;
+}
+
+/** Empty the clipboard (here and in every other tab), so nothing is pasted by accident later. */
+export function clearDeviceAttributeClip(): void {
+    current = null;
+    try {
+        window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+        // Storage off: this tab's copy is gone, which is all there was.
+    }
+    emit();
 }
 
 export function getDeviceAttributeClip(): DeviceAttributeClip | null {
@@ -117,6 +137,10 @@ function parse(raw: string | null): DeviceAttributeClip | null {
                 const method = str(v.poll_method);
                 if (method === null || !POLL_METHODS.includes(method)) return null;
                 return { kind: 'poll', poll_method: method as PollMethod, credential_id: int(v.credential_id), ...from };
+            }
+            case 'parent': {
+                const parentId = int(v.parent_device_id);
+                return { kind: 'parent', parent_device_id: parentId, parent_name: parentId === null ? null : str(v.parent_name), ...from };
             }
             default:
                 return null;

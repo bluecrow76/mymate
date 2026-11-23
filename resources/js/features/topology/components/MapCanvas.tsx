@@ -60,7 +60,7 @@ import { useCaptureLayoutSnapshot, useUndoLayout, useLayoutSnapshotCount } from 
 import { bundleParallel, computeData, linkUtil, metaOf, type EdgeMeta, type UtilMap } from '../lib/edgeData';
 import { selectDevice, setEdgeStyle, setEdgeAttach, setInspectorOpen, setLayoutKind, setMapGrid, useActiveMapId, useEdgeStyle, useEdgeAttach, useLayoutKind, useMapGrid, useMapGridColor, useMapGridSize, useSelectedDeviceId } from '../../../lib/shellStore';
 import { pushToast } from '../../../lib/toast';
-import { ATTRIBUTE_LABEL, attributeChanges, copyDeviceAttribute, useDeviceAttributeClip, type DeviceAttributeClip } from '../../../lib/deviceAttributeClipboard';
+import { ATTRIBUTE_LABEL, attributeChanges, clearDeviceAttributeClip, copyDeviceAttribute, useDeviceAttributeClip, type DeviceAttributeClip } from '../../../lib/deviceAttributeClipboard';
 import { bulkErrorMessages, useBulkUpdateDevices } from '../../devices/api/bulkUpdateDevices';
 import { fmtDuration } from '../../device-page/lib/format';
 import type { AlertStateChangedPayload, Device, DeviceRebootedPayload, DeviceStatus, FaceSensorReading, InterfaceUtilUpdatedPayload } from '../../../types';
@@ -1372,6 +1372,7 @@ export function MapCanvas() {
                             }
                             clip={isAdmin ? attributeClip : null}
                             onPasteAttribute={() => attributeClip && pasteAttribute(attributeClip, nodeMenu.selectionIds ?? [d.id])}
+                            onClearAttribute={isAdmin ? clearDeviceAttributeClip : undefined}
                         />
                     );
                 })()}

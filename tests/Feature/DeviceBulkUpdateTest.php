@@ -262,6 +262,18 @@ class DeviceBulkUpdateTest extends TestCase
         $this->assertSame(2, Device::where('parent_device_id', $parent->id)->count());
     }
 
+    public function test_pasting_no_parent_clears_the_parents(): void
+    {
+        // "Copy parent" from a device with no parent sends null.
+        $parent = Device::factory()->create();
+        $a = Device::factory()->create(['parent_device_id' => $parent->id]);
+        $b = Device::factory()->create(['parent_device_id' => $parent->id]);
+
+        $this->bulk([$a->id, $b->id], ['parent_device_id' => null])->assertOk();
+
+        $this->assertSame(0, Device::where('parent_device_id', $parent->id)->count());
+    }
+
     public function test_the_shared_parent_cannot_be_a_selected_device_or_below_one(): void
     {
         $top = Device::factory()->create();
