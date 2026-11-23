@@ -34,7 +34,10 @@ class ResetNeighboursCommandTest extends TestCase
         $this->other = Device::factory()->create(['name' => 'office-switch', 'mgmt_ip' => '192.0.2.2', 'poll_method' => PollMethod::Snmp,
             'neighbours_collected_at' => now()->subMinutes(5)]);
 
-        foreach ([$this->router, $this->other] as $d) {
+        // Fixture addresses come from the loop index, not the device id: ids keep climbing across
+        // the suite, and 10.0.0.<id> stops being an IP past 255.
+        foreach ([$this->router, $this->other] as $i => $d) {
+            $n = $i + 1;
             $current = ['device_id' => $d->id, 'first_seen_at' => now()->subDay(), 'last_seen_at' => now()->subMinutes(5)];
             $old = ['device_id' => $d->id, 'first_seen_at' => now()->subDays(9), 'last_seen_at' => now()->subDays(8)];
             DB::table('neighbour_sightings')->insert([
@@ -42,11 +45,11 @@ class ResetNeighboursCommandTest extends TestCase
                 ['protocol' => 'mndp', 'local_if_index' => 1, 'remote_key' => 'office-old', 'remote_name' => 'OFFICE-OLD'] + $old,
             ]);
             DB::table('fdb_sightings')->insert([
-                ['port' => 1, 'mac' => '02:00:00:00:00:0'.$d->id % 10, 'vlan' => 0] + $current,
-                ['port' => 2, 'mac' => '02:00:00:00:01:0'.$d->id % 10, 'vlan' => 0] + $old,
+                ['port' => 1, 'mac' => "02:00:00:00:00:0{$n}", 'vlan' => 0] + $current,
+                ['port' => 2, 'mac' => "02:00:00:00:01:0{$n}", 'vlan' => 0] + $old,
             ]);
-            DB::table('arp_sightings')->insert(['ip' => '10.0.0.'.$d->id, 'mac' => '02:00:00:00:02:00'] + $current);
-            DB::table('device_addresses')->insert(['ip' => '10.1.0.'.$d->id, 'prefix_length' => 24] + $current);
+            DB::table('arp_sightings')->insert(['ip' => "10.0.0.{$n}", 'mac' => '02:00:00:00:02:00'] + $current);
+            DB::table('device_addresses')->insert(['ip' => "10.1.0.{$n}", 'prefix_length' => 24] + $current);
         }
     }
 
