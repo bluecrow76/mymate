@@ -23,6 +23,8 @@ of commit subjects.
   those outages, and click a legend entry to filter to that map or type. The histogram can be
   collapsed. The list follows the range too (plus anything still down), and can now also be
   filtered to device types and set to hide outages shorter than 1, 5, 10, 15 or 30 minutes.
+  A Clear button, like the Devices page's, puts the filters back to last 24 hours, any map, any
+  type, short outages shown and all outages.
   Run migrations after upgrading: it adds an index for reading outages by time.
 - Settings > Security can let restricted operators open the Outages page, showing only outages
   for the devices on their maps. It's off by default, as before, and the Outages menu item and

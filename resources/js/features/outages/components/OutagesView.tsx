@@ -10,6 +10,7 @@ import { useShowOnMap } from '../../maps/lib/useShowOnMap';
 import {
     DEVICE_TYPE_OPTIONS,
     MIN_DURATION_OPTIONS,
+    OUTAGE_DEFAULTS,
     OUTAGE_RANGES,
     loadOutagePrefs,
     saveOutagePrefs,
@@ -109,6 +110,26 @@ export function OutagesView() {
         if (maps && mapId !== null && !maps.some((m) => m.id === mapId)) setMapId(null);
     }, [maps, mapId]);
 
+    // Clear: back to the defaults (last 24 hours, any map, any type, short outages shown, all
+    // outages), like the Devices page's Clear. The histogram's colour and collapse are layout,
+    // not filters, so they stay. Only offered while something differs from the defaults.
+    const filtersActive =
+        range !== OUTAGE_DEFAULTS.range ||
+        mapId !== OUTAGE_DEFAULTS.mapId ||
+        deviceTypes.length > 0 ||
+        minDuration !== OUTAGE_DEFAULTS.minDuration ||
+        filter !== OUTAGE_DEFAULTS.state ||
+        bar !== null;
+    const clearFilters = () => {
+        setRange(OUTAGE_DEFAULTS.range);
+        setMapId(OUTAGE_DEFAULTS.mapId);
+        setSubmaps(OUTAGE_DEFAULTS.submaps);
+        setDeviceTypes(OUTAGE_DEFAULTS.deviceTypes);
+        setMinDuration(OUTAGE_DEFAULTS.minDuration);
+        setFilter(OUTAGE_DEFAULTS.state);
+        setBar(null);
+    };
+
     const mapName = mapId !== null ? maps?.find((m) => m.id === mapId)?.name : undefined;
     const typeNames = DEVICE_TYPE_OPTIONS.filter((o) => deviceTypes.includes(o.value)).map((o) => o.label.toLowerCase());
     const emptyNote = [
@@ -186,6 +207,15 @@ export function OutagesView() {
                                 </button>
                             ))}
                         </div>
+                        {filtersActive && (
+                            <button
+                                onClick={clearFilters}
+                                title="Back to the last 24 hours, any map, any type, short outages shown, all outages"
+                                className="rounded-lg px-2 py-1 text-xs text-white/45 ring-1 ring-white/10 hover:text-white/80"
+                            >
+                                Clear
+                            </button>
+                        )}
                     </div>
                 </header>
 
