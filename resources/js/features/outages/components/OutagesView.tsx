@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Warning } from '@phosphor-icons/react';
 import { useOutageHistogram, useOutages } from '../api/getOutages';
 import { StatusDot } from '../../../components/StatusDot';
+import { DeviceGlyph } from '../../topology/nodes/DeviceGlyph';
 import { displayName } from '../../../lib/deviceName';
 import { relativeTime } from '../../../lib/relativeTime';
 import { useMaps } from '../../maps/api/maps';
@@ -274,7 +275,21 @@ export function OutagesView() {
                                             title={o.device_maps.length === 0 ? 'Not on any map - opens the device' : 'Show on the map'}
                                             className="cursor-pointer transition-colors duration-200 hover:bg-white/[0.03]"
                                         >
-                                            <td className="px-4 py-2.5 font-medium text-white/85">{name}</td>
+                                            <td className="px-4 py-2.5 font-medium text-white/85">
+                                                {/* The device's icon, drawn as on the map: custom icon, product photo, vendor mark or type. */}
+                                                <span className="flex items-center gap-2.5">
+                                                    <DeviceGlyph
+                                                        deviceId={o.device_id}
+                                                        vendor={o.device_vendor}
+                                                        model={o.device_model}
+                                                        type={o.device_type}
+                                                        icon={o.device_icon}
+                                                        iconColor={o.device_icon_color}
+                                                        className="h-5 w-5 shrink-0"
+                                                    />
+                                                    <span className="min-w-0">{name}</span>
+                                                </span>
+                                            </td>
                                             <td className="px-4 py-2.5 font-mono text-xs tabular-nums text-white/55">{o.device_ip ?? '–'}</td>
                                             <td className="px-4 py-2.5 tabular-nums text-white/55">{relativeTime(o.started_at)}</td>
                                             <td className="px-4 py-2.5 tabular-nums text-white/70">

@@ -698,6 +698,12 @@ export interface Outage {
     device_name: string | null;
     device_alias: string | null;
     device_ip: string | null; // the device's management IP now, not at the time of the outage
+    // What the row's device icon (DeviceGlyph, as on the map) is drawn from.
+    device_type: DeviceType;
+    device_vendor: string | null;
+    device_model: string | null;
+    device_icon: string | null; // custom icon key, null = automatic
+    device_icon_color: string | null;
     device_maps: { id: number; name: string }[]; // maps it's on that this operator can open
     started_at: string;
     ended_at: string | null;

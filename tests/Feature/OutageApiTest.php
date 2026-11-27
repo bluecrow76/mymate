@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Actions\Outages\RecordOutage;
+use App\Enums\DeviceType;
 use App\Models\Device;
 use App\Models\DeviceMapPosition;
 use App\Models\Map;
@@ -82,6 +83,32 @@ class OutageApiTest extends TestCase
             ->assertJsonPath('data.0.device_alias', 'CP2 Check Printer')
             ->assertJsonPath('data.0.device_maps.0.name', 'Accounting')
             ->assertJsonPath('data.0.device_maps.1.name', 'Warehouse');
+    }
+
+    public function test_lists_what_the_device_icon_is_drawn_from(): void
+    {
+        $this->actingAsUser();
+        $router = Device::factory()->create([
+            'device_type' => DeviceType::Router, 'vendor' => 'MikroTik', 'model' => 'CCR2004-16G-2S+',
+            'icon' => null, 'icon_color' => null,
+        ]);
+        $copier = Device::factory()->create([
+            'device_type' => DeviceType::Unknown, 'vendor' => null, 'model' => null,
+            'icon' => 'printer', 'icon_color' => '#fbbf24',
+        ]);
+        Outage::factory()->for($router)->create(['started_at' => now()->subHour()]);
+        Outage::factory()->for($copier)->create(['started_at' => now()->subMinutes(5)]);
+
+        $rows = collect($this->getJson('/api/outages')->assertOk()->json('data'))->keyBy('device_id');
+
+        $this->assertSame(
+            ['router', 'MikroTik', 'CCR2004-16G-2S+', null, null],
+            [$rows[$router->id]['device_type'], $rows[$router->id]['device_vendor'], $rows[$router->id]['device_model'], $rows[$router->id]['device_icon'], $rows[$router->id]['device_icon_color']],
+        );
+        $this->assertSame(
+            ['unknown', null, null, 'printer', '#fbbf24'],
+            [$rows[$copier->id]['device_type'], $rows[$copier->id]['device_vendor'], $rows[$copier->id]['device_model'], $rows[$copier->id]['device_icon'], $rows[$copier->id]['device_icon_color']],
+        );
     }
 
     public function test_a_device_on_no_map_lists_no_maps(): void
