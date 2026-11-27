@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Warning } from '@phosphor-icons/react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { GearSix, Warning } from '@phosphor-icons/react';
 import { useOutageHistogram, useOutages } from '../api/getOutages';
 import { StatusDot } from '../../../components/StatusDot';
 import { DeviceGlyph } from '../../topology/nodes/DeviceGlyph';
@@ -11,16 +11,22 @@ import { useShowOnMap } from '../../maps/lib/useShowOnMap';
 import {
     DEVICE_TYPE_OPTIONS,
     MIN_DURATION_OPTIONS,
-    OUTAGE_DEFAULTS,
     OUTAGE_RANGES,
     loadOutagePrefs,
+    loadOutageSettings,
+    sameFilters,
     saveOutagePrefs,
+    saveOutageSettings,
     type OutageColourBy,
+    type OutageColumnId,
+    type OutageFilters,
     type OutageStateFilter,
+    type OutageTimeFormat,
 } from '../lib/outagePrefs';
 import { DeviceTypeFilter } from './DeviceTypeFilter';
 import { OutageHistogram } from './OutageHistogram';
-import type { DeviceType, Outage, OutageHistogramGroup, OutageRange } from '../../../types';
+import { OutageSettingsPanel } from './OutageSettingsPanel';
+import type { DeviceType, NetworkMap, Outage, OutageHistogramGroup, OutageRange } from '../../../types';
 
 function fmtDuration(s: number | null): string {
     if (s === null) return '-';
@@ -37,6 +43,51 @@ const pill = (active: boolean) =>
     }`;
 
 const selectCls = 'rounded-lg bg-white/[0.04] px-2 py-1.5 text-xs text-white ring-1 ring-white/10 outline-none transition focus:ring-emerald-400/40';
+
+const TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** "Thu 27 Nov, 14:32:07" in the browser's time zone; the year only when it isn't this one. */
+function fmtDateTime(iso: string): string {
+    const d = new Date(iso);
+    return d.toLocaleString([], {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}),
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+    });
+}
+
+/** A time in the chosen format, with the other format on hover. */
+function TimeText({ iso, format }: { iso: string; format: OutageTimeFormat }) {
+    return format === 'datetime' ? (
+        <span title={relativeTime(iso)}>{fmtDateTime(iso)}</span>
+    ) : (
+        <span title={`${fmtDateTime(iso)} (${TIME_ZONE})`}>{relativeTime(iso)}</span>
+    );
+}
+
+/** My Mate records "unreachable"; anything else came from a Dude import (its service or status). */
+function causeLabel(cause: string | null): { text: string; title?: string } {
+    if (cause === null || cause === '') return { text: '–' };
+    if (cause === 'unreachable') return { text: 'Unreachable', title: "Stopped answering My Mate's pings" };
+    return { text: cause, title: 'Imported from The Dude' };
+}
+
+/** "last 24 hours, any map, any type, short outages shown, all outages" - for Clear's tooltip. */
+function describeFilters(f: OutageFilters, maps: NetworkMap[] | undefined): string {
+    const types = DEVICE_TYPE_OPTIONS.filter((o) => f.deviceTypes.includes(o.value)).map((o) => o.label.toLowerCase());
+    const map = f.mapId !== null ? maps?.find((m) => m.id === f.mapId)?.name : undefined;
+    return [
+        (OUTAGE_RANGES.find((r) => r.value === f.range)?.label ?? f.range).toLowerCase(),
+        f.mapId === null ? 'any map' : `${map ?? 'a map'}${f.submaps ? ' and its sub-maps' : ''}`,
+        types.length === 0 || types.length === DEVICE_TYPE_OPTIONS.length ? 'any type' : types.join(' / '),
+        f.minDuration > 0 ? `hide under ${f.minDuration / 60} min` : 'short outages shown',
+        f.state === 'all' ? 'all outages' : f.state === 'open' ? 'ongoing outages' : 'resolved outages',
+    ].join(', ');
+}
 
 /** The name the rest of the app shows for the device: its alias when set, else the hostname. */
 function outageDeviceName(o: Outage): string {
@@ -60,7 +111,34 @@ function windowLabel(w: { start: string; end: string }): string {
 export function OutagesView() {
     // Filters, the range and the histogram's layout are remembered in this browser, like the
     // Devices page filters. The bar the list is narrowed to isn't - it belongs to this visit.
-    const [saved] = useState(loadOutagePrefs);
+    // The gear's settings (what Clear resets to, the columns) - also kept in this browser. A first
+    // visit, with no filters saved yet, starts from the Clear defaults.
+    const [settings, setSettings] = useState(loadOutageSettings);
+    const [settingsOpen, setSettingsOpen] = useState(false);
+    const gearRef = useRef<HTMLButtonElement>(null);
+    // Where the open panel sits: under the gear on a wide screen, kept there as the page scrolls or
+    // the window resizes; null on a phone, where it's a full-width sheet.
+    const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+    useLayoutEffect(() => {
+        if (!settingsOpen) return;
+        const place = () => {
+            const r = gearRef.current?.getBoundingClientRect();
+            setAnchor(r && window.matchMedia('(min-width: 640px)').matches ? { top: r.bottom + 8, right: Math.max(12, window.innerWidth - r.right) } : null);
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') setSettingsOpen(false);
+        };
+        place();
+        window.addEventListener('resize', place);
+        window.addEventListener('scroll', place, true);
+        window.addEventListener('keydown', onKey);
+        return () => {
+            window.removeEventListener('resize', place);
+            window.removeEventListener('scroll', place, true);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [settingsOpen]);
+    const [saved] = useState(() => loadOutagePrefs(settings.clearDefaults));
     const [filter, setFilter] = useState<OutageStateFilter>(saved.state);
     const [mapId, setMapId] = useState<number | null>(saved.mapId);
     const [submaps, setSubmaps] = useState(saved.submaps);
@@ -89,6 +167,7 @@ export function OutagesView() {
         () => saveOutagePrefs({ state: filter, mapId, submaps, deviceTypes, minDuration, range, colourBy, histogramCollapsed: collapsed }),
         [filter, mapId, submaps, deviceTypes, minDuration, range, colourBy, collapsed],
     );
+    useEffect(() => saveOutageSettings(settings), [settings]);
 
     // A narrowed-to bar belongs to the chart it was picked from: any filter change redraws the
     // chart, so it lets the bar go rather than leave the list on a slice that's moved.
@@ -111,25 +190,101 @@ export function OutagesView() {
         if (maps && mapId !== null && !maps.some((m) => m.id === mapId)) setMapId(null);
     }, [maps, mapId]);
 
-    // Clear: back to the defaults (last 24 hours, any map, any type, short outages shown, all
-    // outages), like the Devices page's Clear. The histogram's colour and collapse are layout,
-    // not filters, so they stay. Only offered while something differs from the defaults.
-    const filtersActive =
-        range !== OUTAGE_DEFAULTS.range ||
-        mapId !== OUTAGE_DEFAULTS.mapId ||
-        deviceTypes.length > 0 ||
-        minDuration !== OUTAGE_DEFAULTS.minDuration ||
-        filter !== OUTAGE_DEFAULTS.state ||
-        bar !== null;
+    // Clear: back to the Clear defaults - the user's own (settings gear), else My Mate's (last 24
+    // hours, any map, any type, short outages shown, all outages) - like the Devices page's Clear.
+    // The histogram's colour and collapse are layout, not filters, so they stay. Only offered
+    // while something differs from those defaults.
+    const current: OutageFilters = { state: filter, mapId, submaps, deviceTypes, minDuration, range };
+    const defaults = settings.clearDefaults;
+    const filtersActive = !sameFilters(current, defaults) || bar !== null;
     const clearFilters = () => {
-        setRange(OUTAGE_DEFAULTS.range);
-        setMapId(OUTAGE_DEFAULTS.mapId);
-        setSubmaps(OUTAGE_DEFAULTS.submaps);
-        setDeviceTypes(OUTAGE_DEFAULTS.deviceTypes);
-        setMinDuration(OUTAGE_DEFAULTS.minDuration);
-        setFilter(OUTAGE_DEFAULTS.state);
+        setRange(defaults.range);
+        setMapId(defaults.mapId);
+        setSubmaps(defaults.submaps);
+        setDeviceTypes(defaults.deviceTypes);
+        setMinDuration(defaults.minDuration);
+        setFilter(defaults.state);
         setBar(null);
     };
+
+    // The list's columns, in the chosen order (Device is always among them).
+    const columns: Record<OutageColumnId, { header: string; cell: (o: Outage, name: string) => ReactNode }> = {
+        device: {
+            header: 'Device',
+            cell: (o, name) => (
+                <td key="device" className="px-4 py-2.5 font-medium text-white/85">
+                    {/* The device's icon, drawn as on the map: custom icon, product photo, vendor mark or type. */}
+                    <span className="flex items-center gap-2.5">
+                        <DeviceGlyph
+                            deviceId={o.device_id}
+                            vendor={o.device_vendor}
+                            model={o.device_model}
+                            type={o.device_type}
+                            icon={o.device_icon}
+                            iconColor={o.device_icon_color}
+                            className="h-5 w-5 shrink-0"
+                        />
+                        <span className="min-w-0">{name}</span>
+                    </span>
+                </td>
+            ),
+        },
+        ip: { header: 'IP address', cell: (o) => <td key="ip" className="px-4 py-2.5 font-mono text-xs tabular-nums text-white/55">{o.device_ip ?? '–'}</td> },
+        started: {
+            header: 'Started',
+            cell: (o) => (
+                <td key="started" className="whitespace-nowrap px-4 py-2.5 tabular-nums text-white/55">
+                    <TimeText iso={o.started_at} format={settings.startedFormat} />
+                </td>
+            ),
+        },
+        ended: {
+            header: 'Ended',
+            cell: (o) => (
+                <td key="ended" className="whitespace-nowrap px-4 py-2.5 tabular-nums text-white/55">
+                    {o.ended_at ? <TimeText iso={o.ended_at} format={settings.endedFormat} /> : <span className="text-white/30" title="Still down">–</span>}
+                </td>
+            ),
+        },
+        duration: {
+            header: 'Duration',
+            cell: (o) => <td key="duration" className="px-4 py-2.5 tabular-nums text-white/70">{o.ongoing ? 'ongoing' : fmtDuration(o.duration_s)}</td>,
+        },
+        state: {
+            header: 'State',
+            cell: (o) => (
+                <td key="state" className="px-4 py-2.5">
+                    <span className="flex items-center gap-1.5 text-white/60">
+                        <StatusDot status={o.ongoing ? 'down' : 'up'} />
+                        {o.ongoing ? 'Down' : 'Recovered'}
+                    </span>
+                </td>
+            ),
+        },
+        cause: {
+            header: 'Cause',
+            cell: (o) => {
+                const c = causeLabel(o.cause);
+                return (
+                    <td key="cause" className="px-4 py-2.5 text-white/55" title={c.title}>
+                        {c.text}
+                    </td>
+                );
+            },
+        },
+        maps: {
+            header: 'Maps',
+            cell: (o) => {
+                const names = o.device_maps.map((m) => m.name).join(', ');
+                return (
+                    <td key="maps" className="max-w-[16rem] truncate px-4 py-2.5 text-white/55" title={names || undefined}>
+                        {names || '–'}
+                    </td>
+                );
+            },
+        },
+    };
+    const shown = settings.columns.filter((c) => c.visible);
 
     const mapName = mapId !== null ? maps?.find((m) => m.id === mapId)?.name : undefined;
     const typeNames = DEVICE_TYPE_OPTIONS.filter((o) => deviceTypes.includes(o.value)).map((o) => o.label.toLowerCase());
@@ -212,12 +367,37 @@ export function OutagesView() {
                             // Styled as a selected option: it only shows while filters are on.
                             <button
                                 onClick={clearFilters}
-                                title="Back to the last 24 hours, any map, any type, short outages shown, all outages"
+                                title={`Back to ${describeFilters(defaults, maps)}`}
                                 className={`${pill(true)} hover:bg-white/15`}
                             >
                                 Clear
                             </button>
                         )}
+                        <div>
+                            <button
+                                ref={gearRef}
+                                type="button"
+                                onClick={() => setSettingsOpen((o) => !o)}
+                                aria-label="Outages page settings"
+                                aria-expanded={settingsOpen}
+                                title="Settings: what Clear resets to, and the list's columns"
+                                className={`grid h-7 w-7 place-items-center rounded-lg ring-1 transition-colors ${
+                                    settingsOpen ? 'bg-emerald-500/15 text-emerald-300 ring-emerald-400/35' : 'text-white/55 ring-white/10 hover:bg-white/[0.06] hover:text-white/85'
+                                }`}
+                            >
+                                <GearSix className="h-4 w-4" />
+                            </button>
+                            {settingsOpen && (
+                                <OutageSettingsPanel
+                                    settings={settings}
+                                    onChange={setSettings}
+                                    current={current}
+                                    maps={maps ?? []}
+                                    anchor={anchor}
+                                    onClose={() => setSettingsOpen(false)}
+                                />
+                            )}
+                        </div>
                     </div>
                 </header>
 
@@ -259,11 +439,11 @@ export function OutagesView() {
                         <table className="w-full min-w-[42rem] text-left text-sm">
                             <thead className="bg-white/[0.03] text-[11px] uppercase tracking-wide text-white/40">
                                 <tr>
-                                    <th className="px-4 py-2.5 font-medium">Device</th>
-                                    <th className="px-4 py-2.5 font-medium">IP address</th>
-                                    <th className="px-4 py-2.5 font-medium">Started</th>
-                                    <th className="px-4 py-2.5 font-medium">Duration</th>
-                                    <th className="px-4 py-2.5 font-medium">State</th>
+                                    {shown.map((c) => (
+                                        <th key={c.id} className="px-4 py-2.5 font-medium">
+                                            {columns[c.id].header}
+                                        </th>
+                                    ))}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-white/[0.04]">
@@ -276,32 +456,7 @@ export function OutagesView() {
                                             title={o.device_maps.length === 0 ? 'Not on any map - opens the device' : 'Show on the map'}
                                             className="cursor-pointer transition-colors duration-200 hover:bg-white/[0.03]"
                                         >
-                                            <td className="px-4 py-2.5 font-medium text-white/85">
-                                                {/* The device's icon, drawn as on the map: custom icon, product photo, vendor mark or type. */}
-                                                <span className="flex items-center gap-2.5">
-                                                    <DeviceGlyph
-                                                        deviceId={o.device_id}
-                                                        vendor={o.device_vendor}
-                                                        model={o.device_model}
-                                                        type={o.device_type}
-                                                        icon={o.device_icon}
-                                                        iconColor={o.device_icon_color}
-                                                        className="h-5 w-5 shrink-0"
-                                                    />
-                                                    <span className="min-w-0">{name}</span>
-                                                </span>
-                                            </td>
-                                            <td className="px-4 py-2.5 font-mono text-xs tabular-nums text-white/55">{o.device_ip ?? '–'}</td>
-                                            <td className="px-4 py-2.5 tabular-nums text-white/55">{relativeTime(o.started_at)}</td>
-                                            <td className="px-4 py-2.5 tabular-nums text-white/70">
-                                                {o.ongoing ? 'ongoing' : fmtDuration(o.duration_s)}
-                                            </td>
-                                            <td className="px-4 py-2.5">
-                                                <span className="flex items-center gap-1.5 text-white/60">
-                                                    <StatusDot status={o.ongoing ? 'down' : 'up'} />
-                                                    {o.ongoing ? 'Down' : 'Recovered'}
-                                                </span>
-                                            </td>
+                                            {shown.map((c) => columns[c.id].cell(o, name))}
                                         </tr>
                                     );
                                 })}

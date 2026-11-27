@@ -25,7 +25,11 @@ of commit subjects.
   filtered to device types and set to hide outages shorter than 1, 5, 10, 15 or 30 minutes.
   A Clear button, like the Devices page's, puts the filters back to last 24 hours, any map, any
   type, short outages shown and all outages. Each device in the list has its icon beside its name,
-  drawn as on the map: its custom icon, product photo, vendor mark or type.
+  drawn as on the map: its custom icon, product photo, vendor mark or type. A settings button (the
+  gear) chooses what Clear resets to - set each filter, or take the ones on screen - and which
+  columns the list shows, in what order: Started and a new Ended column as "4m ago" or as a date
+  and time in your time zone (hover for the other), plus optional Cause and Maps columns. Settings
+  are kept in this browser; a first visit starts from your Clear defaults.
   Run migrations after upgrading: it adds an index for reading outages by time.
 - Settings > Security can let restricted operators open the Outages page, showing only outages
   for the devices on their maps. It's off by default, as before, and the Outages menu item and
