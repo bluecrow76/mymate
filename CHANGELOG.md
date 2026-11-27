@@ -28,8 +28,9 @@ of commit subjects.
   drawn as on the map: its custom icon, product photo, vendor mark or type. A settings button (the
   gear) chooses what Clear resets to - set each filter, or take the ones on screen - and which
   columns the list shows, in what order: Started and a new Ended column as "4m ago" or as a date
-  and time in your time zone (hover for the other), plus optional Cause and Maps columns. Settings
-  are kept in this browser; a first visit starts from your Clear defaults.
+  and time in your time zone (hover for the other), plus optional Cause and Maps columns, and the
+  State column as dot and word or as just the dot, a narrow column (hover a dot for Down or
+  Recovered). Settings are kept in this browser; a first visit starts from your Clear defaults.
   Run migrations after upgrading: it adds an index for reading outages by time.
 - Settings > Security can let restricted operators open the Outages page, showing only outages
   for the devices on their maps. It's off by default, as before, and the Outages menu item and

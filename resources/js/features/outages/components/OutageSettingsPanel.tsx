@@ -12,6 +12,7 @@ import {
     type OutageFilters,
     type OutageSettings,
     type OutageStateFilter,
+    type OutageStateFormat,
     type OutageTimeFormat,
 } from '../lib/outagePrefs';
 import { DeviceTypeFilter } from './DeviceTypeFilter';
@@ -67,7 +68,10 @@ export function OutageSettingsPanel({
     const setFormat = (id: 'started' | 'ended', f: OutageTimeFormat) =>
         onChange({ ...settings, ...(id === 'started' ? { startedFormat: f } : { endedFormat: f }) });
     const columnsAreDefault =
-        JSON.stringify(settings.columns) === JSON.stringify(DEFAULT_COLUMNS) && settings.startedFormat === 'relative' && settings.endedFormat === 'relative';
+        JSON.stringify(settings.columns) === JSON.stringify(DEFAULT_COLUMNS) &&
+        settings.startedFormat === 'relative' &&
+        settings.endedFormat === 'relative' &&
+        settings.stateFormat === 'dot-text';
 
     return createPortal(
         <>
@@ -170,7 +174,7 @@ export function OutageSettingsPanel({
                             type="button"
                             className={linkBtn}
                             disabled={columnsAreDefault}
-                            onClick={() => onChange({ ...settings, columns: DEFAULT_COLUMNS, startedFormat: 'relative', endedFormat: 'relative' })}
+                            onClick={() => onChange({ ...settings, columns: DEFAULT_COLUMNS, startedFormat: 'relative', endedFormat: 'relative', stateFormat: 'dot-text' })}
                         >
                             Reset columns
                         </button>
@@ -211,6 +215,21 @@ export function OutageSettingsPanel({
                                         ))}
                                     </div>
                                 )}
+                                {c.id === 'state' && (
+                                    <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/5 p-0.5 ring-1 ring-white/10" role="group" aria-label="State shows">
+                                        {(['dot-text', 'dot'] as OutageStateFormat[]).map((f) => (
+                                            <button
+                                                key={f}
+                                                type="button"
+                                                aria-pressed={settings.stateFormat === f}
+                                                onClick={() => onChange({ ...settings, stateFormat: f })}
+                                                className={pill(settings.stateFormat === f, true)}
+                                            >
+                                                {f === 'dot-text' ? 'Dot + text' : 'Dot only'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
                                 <span className="flex shrink-0 gap-0.5">
                                     <button
                                         type="button"
@@ -237,7 +256,7 @@ export function OutageSettingsPanel({
                         );
                     })}
                     <p className="px-1 pt-1 text-[11px] text-white/45">
-                        The list shows the columns in this order, top to bottom = left to right. Dates and times are in your browser&apos;s time zone; hover a time to see the other format.
+                        The list shows the columns in this order, top to bottom = left to right. Dates and times are in your browser&apos;s time zone; hover a time to see the other format, or a State dot to see Down or Recovered.
                     </p>
                 </div>
 

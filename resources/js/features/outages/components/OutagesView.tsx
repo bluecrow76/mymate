@@ -208,7 +208,9 @@ export function OutagesView() {
     };
 
     // The list's columns, in the chosen order (Device is always among them).
-    const columns: Record<OutageColumnId, { header: string; cell: (o: Outage, name: string) => ReactNode }> = {
+    // State as "Dot only" is a narrow column: no header text on screen (still read out), the word on hover.
+    const stateDotOnly = settings.stateFormat === 'dot';
+    const columns: Record<OutageColumnId, { header: ReactNode; thClass?: string; cell: (o: Outage, name: string) => ReactNode }> = {
         device: {
             header: 'Device',
             cell: (o, name) => (
@@ -250,17 +252,32 @@ export function OutagesView() {
             header: 'Duration',
             cell: (o) => <td key="duration" className="px-4 py-2.5 tabular-nums text-white/70">{o.ongoing ? 'ongoing' : fmtDuration(o.duration_s)}</td>,
         },
-        state: {
-            header: 'State',
-            cell: (o) => (
-                <td key="state" className="px-4 py-2.5">
-                    <span className="flex items-center gap-1.5 text-white/60">
-                        <StatusDot status={o.ongoing ? 'down' : 'up'} />
-                        {o.ongoing ? 'Down' : 'Recovered'}
-                    </span>
-                </td>
-            ),
-        },
+        state: stateDotOnly
+            ? {
+                  header: <span className="sr-only">State</span>,
+                  thClass: 'w-px px-3 py-2.5',
+                  cell: (o) => {
+                      const word = o.ongoing ? 'Down' : 'Recovered';
+                      return (
+                          <td key="state" className="w-px px-3 py-2.5 text-center">
+                              <span role="img" aria-label={word} title={word} className="inline-flex align-middle">
+                                  <StatusDot status={o.ongoing ? 'down' : 'up'} />
+                              </span>
+                          </td>
+                      );
+                  },
+              }
+            : {
+                  header: 'State',
+                  cell: (o) => (
+                      <td key="state" className="px-4 py-2.5">
+                          <span className="flex items-center gap-1.5 text-white/60">
+                              <StatusDot status={o.ongoing ? 'down' : 'up'} />
+                              {o.ongoing ? 'Down' : 'Recovered'}
+                          </span>
+                      </td>
+                  ),
+              },
         cause: {
             header: 'Cause',
             cell: (o) => {
@@ -440,7 +457,7 @@ export function OutagesView() {
                             <thead className="bg-white/[0.03] text-[11px] uppercase tracking-wide text-white/40">
                                 <tr>
                                     {shown.map((c) => (
-                                        <th key={c.id} className="px-4 py-2.5 font-medium">
+                                        <th key={c.id} title={c.id === 'state' && stateDotOnly ? 'State' : undefined} className={`${columns[c.id].thClass ?? 'px-4 py-2.5'} font-medium`}>
                                             {columns[c.id].header}
                                         </th>
                                     ))}

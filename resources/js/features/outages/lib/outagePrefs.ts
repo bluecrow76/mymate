@@ -130,6 +130,8 @@ export function saveOutagePrefs(p: OutagePrefs): void {
 /** A column of the outage list. Device can move but is always shown. */
 export type OutageColumnId = 'device' | 'ip' | 'started' | 'ended' | 'duration' | 'state' | 'cause' | 'maps';
 export type OutageTimeFormat = 'relative' | 'datetime';
+/** The State column: the dot and its word, or just the dot (a narrow column; the word on hover). */
+export type OutageStateFormat = 'dot-text' | 'dot';
 
 export const OUTAGE_COLUMNS: { id: OutageColumnId; label: string; hint?: string; timed?: boolean }[] = [
     { id: 'device', label: 'Device' },
@@ -152,6 +154,7 @@ export interface OutageSettings {
     columns: OutageColumn[]; // in display order
     startedFormat: OutageTimeFormat;
     endedFormat: OutageTimeFormat;
+    stateFormat: OutageStateFormat;
 }
 
 /** Today's columns as before; the new ones start hidden, so nothing changes until asked for. */
@@ -171,6 +174,7 @@ export const DEFAULT_OUTAGE_SETTINGS: OutageSettings = {
     columns: DEFAULT_COLUMNS,
     startedFormat: 'relative',
     endedFormat: 'relative',
+    stateFormat: 'dot-text',
 };
 
 const SETTINGS_KEY = 'mymate.outages.settings.v1';
@@ -196,6 +200,7 @@ function readColumns(raw: unknown): OutageColumn[] {
 }
 
 const readFormat = (v: unknown): OutageTimeFormat => (v === 'datetime' ? 'datetime' : 'relative');
+const readStateFormat = (v: unknown): OutageStateFormat => (v === 'dot' ? 'dot' : 'dot-text');
 
 export function loadOutageSettings(): OutageSettings {
     try {
@@ -206,6 +211,7 @@ export function loadOutageSettings(): OutageSettings {
             columns: readColumns(raw.columns),
             startedFormat: readFormat(raw.startedFormat),
             endedFormat: readFormat(raw.endedFormat),
+            stateFormat: readStateFormat(raw.stateFormat),
         };
     } catch {
         return DEFAULT_OUTAGE_SETTINGS;
