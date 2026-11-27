@@ -209,10 +209,11 @@ export function OutagesView() {
                             ))}
                         </div>
                         {filtersActive && (
+                            // Styled as a selected option: it only shows while filters are on.
                             <button
                                 onClick={clearFilters}
                                 title="Back to the last 24 hours, any map, any type, short outages shown, all outages"
-                                className="rounded-lg px-2 py-1 text-xs text-white/45 ring-1 ring-white/10 hover:text-white/80"
+                                className={`${pill(true)} hover:bg-white/15`}
                             >
                                 Clear
                             </button>
